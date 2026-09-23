@@ -652,6 +652,7 @@ var BANK_MA = [
 /* ==== BANK:MATH:END ==== */
 
 var MATH_TYPES = [
+  {k:"mix2",n:"两步综合计算"},
   {k:"add2",n:"两位数加减"},
   {k:"add3",n:"三位数加减"},
   {k:"mul1",n:"乘一位数"},
@@ -705,8 +706,9 @@ function load(k,def){try{var v=localStorage.getItem(KEY+k);return v?JSON.parse(v
 function save(k,v){try{localStorage.setItem(KEY+k,JSON.stringify(v));}catch(e){}}
 var DEFAULT_SETTINGS={
   count:{cn:4,ma:15,en:8},
-  mathTypes:["add2","add3","mul1","div1","mul10","unit","peri","word"],
-  rate:0.8, replay:3, goalMin:20, autoSpeak:true, cnInput:"hand", maPad:true
+  mathTypes:["mix2","add2","add3","mul1","div1","mul10","unit","peri","word"],
+  mixRate:0.5,
+  rate:0.8, replay:3, goalMin:20, autoSpeak:true, cnInput:"hand", maPad:true, showSay:false
 };
 var S=Object.assign({},DEFAULT_SETTINGS,load("settings",{}));
 S.count=Object.assign({},DEFAULT_SETTINGS.count,S.count||{});
@@ -744,10 +746,18 @@ function buildQuestions(subj,date){
     }
     // 不足则用填空组卷重复跳过
   }else if(subj==="ma"){
-    var types=S.mathTypes.length?S.mathTypes:["add2"];
-    var gen=[],i2,used={};
+    var types=S.mathTypes.length?S.mathTypes.slice():["add2"];
+    var mixOn=types.indexOf("mix2")>=0;
+    var base=[],ti;
+    for(ti=0;ti<types.length;ti++){if(types[ti]!=="mix2")base.push(types[ti]);}
+    if(!base.length)base=["add2"];
+    base=shuffle(r,base);
+    var mr=(typeof S.mixRate==="number")?S.mixRate:0.5;
+    var gen=[],i2,used={},mixHave=0,bi=0;
     for(i2=0;i2<n;i2++){
-      var ty=types[i2%types.length];
+      var ty;
+      if(mixOn&&mixHave<Math.round((i2+1)*mr)){ty="mix2";mixHave++;}
+      else{ty=base[bi++%base.length];}
       var q=pickMa(r,ty,used)||genMath(r,ty);
       if(q)gen.push(q);
     }
@@ -798,8 +808,25 @@ function autoKind(t){
   if(m)return (+m[1]<100&&+m[2]<100)?"add2":"add3";
   return "word";
 }
+/* 两步综合计算：三上范围内，先乘除后加减 / 带小括号 / 连乘连除 */
+function genMix2(r){
+  var t=ri(r,0,10),a,b,c,s,k,sum,q,ans;
+  if(t===0){a=ri(r,12,89);b=ri(r,2,9);c=ri(r,11,99);q=a+" × "+b+" + "+c+" =";ans=a*b+c;}
+  else if(t===1){a=ri(r,20,89);b=ri(r,3,9);c=ri(r,11,a*b-11);q=a+" × "+b+" − "+c+" =";ans=a*b-c;}
+  else if(t===2){b=ri(r,2,9);s=ri(r,11,50);a=b*s;c=ri(r,11,99);q=a+" ÷ "+b+" + "+c+" =";ans=s+c;}
+  else if(t===3){b=ri(r,2,9);s=ri(r,20,90);a=b*s;c=ri(r,10,s-1);q=a+" ÷ "+b+" − "+c+" =";ans=s-c;}
+  else if(t===4){a=ri(r,11,60);b=ri(r,10,40);c=ri(r,2,9);q="（"+a+" + "+b+"）× "+c+" =";ans=(a+b)*c;}
+  else if(t===5){a=ri(r,40,99);b=ri(r,10,39);c=ri(r,2,9);q="（"+a+" − "+b+"）× "+c+" =";ans=(a-b)*c;}
+  else if(t===6){c=ri(r,2,9);s=ri(r,11,60);sum=s*c;a=ri(r,10,sum-10);b=sum-a;q="（"+a+" + "+b+"）÷ "+c+" =";ans=s;}
+  else if(t===7){c=ri(r,2,9);s=ri(r,11,50);a=ri(r,s*c+11,s*c+60);b=a-s*c;q="（"+a+" − "+b+"）÷ "+c+" =";ans=s;}
+  else if(t===8){c=ri(r,2,9);k=ri(r,3,19);a=c*k;b=ri(r,2,9);q=a+" × "+b+" ÷ "+c+" =";ans=k*b;}
+  else if(t===9){a=ri(r,120,560);b=ri(r,105,320);c=ri(r,50,a+b-1);q=a+" + "+b+" − "+c+" =";ans=a+b-c;}
+  else{a=ri(r,300,900);b=ri(r,105,a-50);c=ri(r,50,200);q=a+" − "+b+" + "+c+" =";ans=a-b+c;}
+  return [q,ans];
+}
 function genMath(r,ty){
   var a,b,c,q,ans;
+  if(ty==="mix2"){var m2=genMix2(r);return {kind:"ma",text:m2[0],ans:String(m2[1]),tip:"",unit:"mix2"};}
   if(ty==="add2"){
     if(r()<.5){a=ri(r,11,89);b=ri(r,11,89);q=a+" + "+b+" =";ans=a+b;}
     else{a=ri(r,30,99);b=ri(r,10,a-1);q=a+" − "+b+" =";ans=a-b;}
@@ -853,28 +880,66 @@ function genMath(r,ty){
 function gcd(a,b){while(b){var t=a%b;a=b;b=t;}return a;}
 
 /* ---------- 语音 ---------- */
-var voice=null;
-function loadVoices(){var vs=window.speechSynthesis?speechSynthesis.getVoices():[];for(var i=0;i<vs.length;i++){if(/en(-|_)?(US|GB)/i.test(vs[i].lang)){voice=vs[i];break;}}}
-if(window.speechSynthesis){loadVoices();speechSynthesis.onvoiceschanged=loadVoices;}
+var voice=null,enVoices=[],allVoices=[],speakErr="",speakTimer=null;
+function loadVoices(){
+  if(!window.speechSynthesis)return;
+  var vs=[],i;
+  try{vs=speechSynthesis.getVoices()||[];}catch(e){vs=[];}
+  allVoices=vs;enVoices=[];
+  for(i=0;i<vs.length;i++){if(/^en/i.test(vs[i].lang||""))enVoices.push(vs[i]);}
+  voice=null;
+  for(i=0;i<enVoices.length;i++){if(/en[-_]US/i.test(enVoices[i].lang)){voice=enVoices[i];break;}}
+  if(!voice&&enVoices.length)voice=enVoices[0];
+}
+if(window.speechSynthesis){
+  loadVoices();
+  try{speechSynthesis.onvoiceschanged=loadVoices;}catch(e){}
+  setTimeout(loadVoices,200);setTimeout(loadVoices,1000);setTimeout(loadVoices,3000);
+}
+function hasEnVoice(){return enVoices.length>0;}
+function voiceDiag(){
+  if(!window.speechSynthesis)return "这个浏览器不支持朗读，请改用手机自带浏览器（安卓 Chrome / iPhone Safari）打开，微信里打开是没声音的。";
+  loadVoices();
+  if(!allVoices.length)return "还没读到系统语音列表（可能刚打开），等 2 秒再点一次「试听」；一直为空说明手机没装文字转语音引擎。";
+  if(!enVoices.length){
+    return "检测到 "+allVoices.length+" 个语音，但没有英文的。<br>安卓：设置 → 系统 → 语言和输入法 → 文字转语音（TTS）→ 安装「英语（美国）」语音数据；<br>iPhone：设置 → 辅助功能 → 朗读内容 → 声音 → 英语 → 下载。";
+  }
+  return "英文语音已就位："+esc(voice?voice.name:"默认")+"（共 "+enVoices.length+" 个）。若仍没声音：检查手机是否静音、媒体音量是否调到 0，并确认不是用微信打开的。";
+}
 function speak(text,rate){
   if(!window.speechSynthesis)return false;
   try{
-    speechSynthesis.cancel();
+    loadVoices();
     var u=new SpeechSynthesisUtterance(text);
-    u.lang="en-US";u.rate=rate||S.rate||0.8;u.pitch=1;
+    u.lang="en-US";u.rate=rate||S.rate||0.8;u.pitch=1;u.volume=1;
     if(voice)u.voice=voice;
-    speechSynthesis.speak(u);
+    u.onstart=function(){speakErr="";};
+    u.onerror=function(e){speakErr=(e&&e.error)||"unknown";toast("朗读失败（"+speakErr+"），请到设置 → 英语听力检测语音");};
+    if(speechSynthesis.speaking||speechSynthesis.pending){
+      speechSynthesis.cancel();
+      setTimeout(function(){try{speechSynthesis.speak(u);}catch(e){}},90);
+    }else{
+      speechSynthesis.speak(u);
+    }
+    clearInterval(speakTimer);
+    speakTimer=setInterval(function(){
+      try{if(!speechSynthesis.speaking){clearInterval(speakTimer);return;}speechSynthesis.resume();}catch(e){clearInterval(speakTimer);}
+    },2500);
     return true;
   }catch(e){return false;}
 }
-/* iOS / 微信内置浏览器需要在用户手势里先唤醒一次语音引擎，否则首次点击无声 */
+/* 安卓/iOS/微信：必须在用户点击的手势里先唤醒一次语音引擎，否则全程无声 */
 var speechUnlocked=false;
 function unlockSpeech(){
-  if(speechUnlocked||!window.speechSynthesis)return;
+  if(!window.speechSynthesis)return;
   try{
-    var u=new SpeechSynthesisUtterance(" ");
-    u.lang="en-US";u.volume=0;speechSynthesis.speak(u);
-    speechUnlocked=true;
+    loadVoices();
+    if(!speechUnlocked){
+      var u=new SpeechSynthesisUtterance(" ");
+      u.lang="en-US";u.volume=0;u.rate=1;
+      speechSynthesis.speak(u);
+      speechUnlocked=true;
+    }
   }catch(e){}
 }
 function playLeft(i){return S.replay>0?Math.max(0,S.replay-(ST.plays[i]||0)):99;}
@@ -969,8 +1034,8 @@ function startPractice(k){
   document.body.classList.add("practicing");
   render();window.scrollTo(0,0);
   if(k==="en"){
-    unlockSpeech();
-    if(S.autoSpeak)setTimeout(function(){autoPlay();},350);
+    // 未解锁时不能自动播（浏览器要求首次朗读必须在用户点击手势内触发）
+    if(S.autoSpeak&&speechUnlocked)setTimeout(function(){autoPlay();},350);
   }
 }
 function autoPlay(){
@@ -1274,7 +1339,18 @@ function viewPractice(){
   }else{
     var canSpeak=!!window.speechSynthesis;
     var left=playLeft(i),used=ST.plays[i]||0;
-    body='<button class="play" id="playBtn"'+(left<=0?" disabled":"")+'>'+
+    if(canSpeak&&!speechUnlocked&&used===0){
+      body+='<div class="card tight" style="background:#fff8e6;border:1px solid #ffe0a3">'+
+        '<div style="font-weight:600;font-size:14px">先点一下，声音才会出来</div>'+
+        '<div class="tiny" style="margin:4px 0 10px">手机浏览器规定：第一次朗读必须是你点的，之后就会自动播放</div>'+
+        '<button class="btn sm" id="audioBtn">点这里开启朗读</button></div>';
+    }
+    if(canSpeak&&speechUnlocked&&!hasEnVoice()){
+      body+='<div class="card tight" style="background:#fff1f0;border:1px solid #ffd0cc">'+
+        '<div style="font-weight:600;font-size:14px">这台手机没装英文语音包</div>'+
+        '<div class="tiny" style="margin-top:4px">安卓：设置 → 系统 → 语言和输入法 → 文字转语音（TTS）→ 下载「英语（美国）」；iPhone：设置 → 辅助功能 → 朗读内容 → 声音 → 英语。装好前可以先点下面的「看原文」做题。</div></div>';
+    }
+    body+='<button class="play" id="playBtn"'+(left<=0?" disabled":"")+'>'+
       '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M11 5L6 9H3v6h3l5 4V5z" fill="currentColor" stroke="currentColor"/><path d="M16 9a4 4 0 010 6" stroke="currentColor" stroke-linecap="round"/><path d="M19 6a8 8 0 010 12" stroke="currentColor" stroke-linecap="round"/></svg>'+
       '<span id="playTxt">'+(left<=0?"已听完 "+used+" 遍":(used?"再听一遍（第 "+(used+1)+" 遍）":"点击播放（可听 "+(S.replay>0?S.replay:99)+" 遍）"))+'</span></button>';
     if(!canSpeak)body+='<div class="card tight"><div class="muted">当前浏览器不支持朗读，请家长朗读下方句子</div><div style="margin-top:8px;font-weight:600">'+esc(q.say)+'</div></div>';
@@ -1289,6 +1365,10 @@ function viewPractice(){
       body+='</div></div>';
     }
     body+='<div class="tiny" id="playCnt" style="text-align:center;margin-top:6px">'+playCountHtml(i)+'</div>';
+    if(canSpeak){
+      body+='<div style="text-align:center;margin-top:10px"><button class="tiny" id="showSayBtn" style="text-decoration:underline">'+(S.showSay?"隐藏原文":"没声音？点这里看原文")+'</button></div>'+
+        (S.showSay?'<div class="card tight" style="margin-top:8px"><div class="tiny">原文（可让家长照着读）</div><div style="margin-top:6px;font-weight:600;font-size:16px">'+esc(q.say)+'</div>'+(q.zh?'<div class="tiny" style="margin-top:4px">'+esc(q.zh)+'</div>':'')+'</div>':'');
+    }
   }
   html+=body;
   html+='<div style="height:14px"></div>';
@@ -1405,7 +1485,7 @@ function startRedoAll(){
   ST.start=Date.now();ST.tab="practice";
   document.body.classList.add("practicing");
   render();window.scrollTo(0,0);
-  if(ST.subj==="en"&&S.autoSpeak)setTimeout(autoPlay,350);
+  if(ST.subj==="en"&&S.autoSpeak&&speechUnlocked)setTimeout(autoPlay,350);
 }
 
 /* ---------- 错题本 ---------- */
@@ -1480,7 +1560,10 @@ function viewSettings(){
   MATH_TYPES.forEach(function(t){
     html+='<button class="chip'+(S.mathTypes.indexOf(t.k)>=0?" on":"")+'" data-mt="'+t.k+'">'+t.n+'</button>';
   });
-  html+='</div></div>';
+  html+='</div>'+
+    '<div class="tiny" style="margin-top:10px">两步综合题占比（如 24×3＋58、（72−36）÷4）</div><div class="chips">'+
+    [[0.3,"少量 30%"],[0.5,"一半 50%"],[0.7,"多数 70%"]].map(function(v){return '<button class="chip'+(Math.abs((typeof S.mixRate==="number"?S.mixRate:0.5)-v[0])<0.01?" on":"")+'" data-mr="'+v[0]+'">'+v[1]+'</button>';}).join("")+
+    '</div></div>';
 
   html+='<div class="card"><div style="font-weight:700">作答方式</div>'+
     '<div class="frow"><div class="lab">语文默写</div><select class="ctl" id="cnInputSel">'+
@@ -1495,7 +1578,8 @@ function viewSettings(){
     '<div class="frow"><div class="lab">每题可播放次数</div><select class="ctl" id="replaySel">'+
     [[0,"不限"],[1,"1 次"],[2,"2 次"],[3,"3 次"],[5,"5 次"]].map(function(v){return '<option value="'+v[0]+'"'+(S.replay===v[0]?" selected":"")+'>'+v[1]+'</option>';}).join("")+'</select></div>'+
     '<div class="frow"><div class="lab">进入题目自动播放</div><button class="chip'+(S.autoSpeak?" on":"")+'" id="autoBtn">'+(S.autoSpeak?"已开启":"已关闭")+'</button></div>'+
-    '<div style="margin-top:10px"><button class="btn line sm" id="testSpeak">试听一句英文</button></div></div>';
+    '<div style="margin-top:10px"><button class="btn line sm" id="testSpeak">试听一句英文</button></div>'+
+    '<div class="tiny" style="margin-top:10px;line-height:1.7">'+voiceDiag()+'</div></div>';
 
   html+='<div class="card"><div style="font-weight:700">题库管理</div><div class="tiny" style="margin:4px 0 10px">当前：语文 '+CN.length+' · 数学 '+MA.length+' · 英语 '+EN.length+' 题。支持 cn/ma/en 或 chinese/math/english，题干写 q 或 t 都可以。</div>'+
     '<div class="btnrow"><button class="btn line sm" id="expBank">导出现有题库</button><button class="btn gray sm" id="resetBank">恢复内置题库</button></div>'+
@@ -1541,6 +1625,20 @@ function bind(){
     var cnt=$("playCnt");if(cnt)cnt.innerHTML=playCountHtml(i);
     if(playLeft(i)<=0){pb.disabled=true;tx.textContent="已听完 "+S.replay+" 遍";}
   };
+  var ab2=$("audioBtn");
+  if(ab2)ab2.onclick=function(){
+    unlockSpeech();
+    var i2=ST.idx;
+    if(playLeft(i2)>0){
+      ST.plays[i2]=(ST.plays[i2]||0)+1;
+      speak(ST.qs[i2].say,S.rate);
+      var cnt2=$("playCnt");if(cnt2)cnt2.innerHTML=playCountHtml(i2);
+    }
+    render();
+    toast("已开启朗读，点喇叭再听");
+  };
+  var ssb=$("showSayBtn");
+  if(ssb)ssb.onclick=function(){S.showSay=!S.showSay;saveS();render();};
   // 数字键盘 + 手写板
   v.querySelectorAll(".pad button[data-k]").forEach(function(b){
     b.onclick=function(){padType(b.getAttribute("data-k"));};
@@ -1575,13 +1673,13 @@ function bind(){
   if(nb)nb.onclick=function(){
     ST.answers[ST.idx]=collectAnswer();
     if(ST.answers[ST.idx]===""&&!confirm("本题还没有作答，确定继续吗？"))return;
-    if(ST.idx<ST.qs.length-1){ST.idx++;ST.curBlank=0;ST.hwStrokes=[];render();window.scrollTo(0,0);if(ST.subj==="en"&&S.autoSpeak)setTimeout(autoPlay,300);}
+    if(ST.idx<ST.qs.length-1){ST.idx++;ST.curBlank=0;ST.hwStrokes=[];render();window.scrollTo(0,0);if(ST.subj==="en"&&S.autoSpeak&&speechUnlocked)setTimeout(autoPlay,300);}
     else finish();
   };
   var pv=$("prevBtn");
   if(pv)pv.onclick=function(){
     ST.answers[ST.idx]=collectAnswer();
-    if(ST.idx>0){ST.idx--;ST.curBlank=0;ST.hwStrokes=[];render();window.scrollTo(0,0);if(ST.subj==="en"&&S.autoSpeak)setTimeout(autoPlay,300);}
+    if(ST.idx>0){ST.idx--;ST.curBlank=0;ST.hwStrokes=[];render();window.scrollTo(0,0);if(ST.subj==="en"&&S.autoSpeak&&speechUnlocked)setTimeout(autoPlay,300);}
   };
   var qb=$("quitBtn");
   if(qb)qb.onclick=function(){if(confirm("退出后本次作答不保存，确定吗？")){if(window.speechSynthesis)speechSynthesis.cancel();go("home");}};
@@ -1623,12 +1721,16 @@ function bind(){
       saveS();render();
     };
   });
+  v.querySelectorAll("[data-mr]").forEach(function(b){
+    b.onclick=function(){S.mixRate=parseFloat(b.getAttribute("data-mr"));saveS();render();};
+  });
   var rs=$("rateSel");if(rs)rs.onchange=function(){S.rate=parseFloat(rs.value);saveS();};
   var cis=$("cnInputSel");if(cis)cis.onchange=function(){S.cnInput=cis.value;saveS();render();};
   var mis=$("maInputSel");if(mis)mis.onchange=function(){S.maPad=(mis.value==="true");saveS();render();};
   var rps=$("replaySel");if(rps)rps.onchange=function(){S.replay=parseInt(rps.value);saveS();render();};
   var ab=$("autoBtn");if(ab)ab.onclick=function(){S.autoSpeak=!S.autoSpeak;saveS();render();};
-  var ts=$("testSpeak");if(ts)ts.onclick=function(){speak("Good morning, this is a test.",S.rate);};
+  var ts=$("testSpeak");
+  if(ts)ts.onclick=function(){unlockSpeech();speak("Good morning, this is a test.",S.rate);toast("已朗读测试句，听不到请看下方检测说明");setTimeout(render,600);};
   var eb=$("expBank");
   if(eb)eb.onclick=function(){download("题库备份.json",{cn:CN,ma:MA,en:EN});};
   var ib=$("impBankBtn");
