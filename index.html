@@ -732,6 +732,7 @@ var CN_ON=false;
 var SUBJ_KEYS=CN_ON?["cn","ma","en"]:["ma","en"];
 var DEFAULT_SETTINGS={
   count:{cn:4,ma:15,en:8},
+  lastN:{cn:0,ma:0,en:0},
   mathTypes:["mix2","add2","add3","mul1","div1","mul10","unit","peri","word"],
   mixRate:0.5,
   rate:0.8, replay:3, goalMin:20, autoSpeak:true, cnInput:"hand", maPad:true, showSay:false,
@@ -739,10 +740,16 @@ var DEFAULT_SETTINGS={
 };
 var S=Object.assign({},DEFAULT_SETTINGS,load("settings",{}));
 S.count=Object.assign({},DEFAULT_SETTINGS.count,S.count||{});
+S.lastN=Object.assign({},DEFAULT_SETTINGS.lastN,S.lastN||{});
 function saveS(){save("settings",S);}
 function dayKey(d){return "day_"+d;}
-function getDay(d){return load(dayKey(d),{cn:null,ma:null,en:null});}
+/* 一天可以做 N 组：sessions 记录当天每一组练习（已完成即封存，不能再做） */
+function getDay(d){var o=load(dayKey(d),null);if(!o||typeof o!=="object")o={};if(!o.sessions||!o.sessions.length)o.sessions=[];return o;}
 function saveDay(d,v){save(dayKey(d),v);}
+function todaySessions(k){return getDay(today()).sessions.filter(function(s){return s.subj===k;});}
+function findSession(id){var ss=getDay(today()).sessions,i;for(i=0;i<ss.length;i++){if(String(ss[i].id)===String(id))return ss[i];}return null;}
+function nowHM(){var d=new Date();return p2(d.getHours())+":"+p2(d.getMinutes());}
+function secTxt(s){s=Math.round(s||0);return Math.floor(s/60)+"分"+(s%60<10?"0":"")+(s%60)+"秒";}
 var WRONG=load("wrong",[]);
 function saveWrong(){save("wrong",WRONG);}
 function wrongKey(w){return w.s+"|"+(w.q||"")+"|"+w.a;}
@@ -774,9 +781,9 @@ function cnPool(){
 function cnLessonText(){
   return (S.cnLessons&&S.cnLessons.length)?S.cnLessons.join("、"):"第6课";
 }
-function buildQuestions(subj,date){
-  var r=rngFrom(hashStr(subj+"|"+date+"|"+(load("salt","")||"")));
-  var n=S.count[subj], out=[];
+function buildQuestions(subj,seed,nReq){
+  var r=rngFrom(hashStr(subj+"|"+seed+"|"+(load("salt","")||"")));
+  var n=(typeof nReq==="number"&&nReq>0)?nReq:S.count[subj], out=[];
   if(subj==="cn"){
     var pool0=cnPool();
     var pool=shuffle(r,pool0);
@@ -998,21 +1005,25 @@ function unlockSpeech(){
 function playLeft(i){return S.replay>0?Math.max(0,S.replay-(ST.plays[i]||0)):99;}
 
 /* ---------- 状态 ---------- */
-var ST={tab:"home",subj:null,qs:[],idx:0,answers:[],start:0,plays:[],result:null,curBlank:0,hwStrokes:[]};
+var ST={tab:"home",subj:null,qs:[],idx:0,answers:[],start:0,plays:[],result:null,curBlank:0,hwStrokes:[],
+  setupSubj:null,setupN:null,reviewS:null,groupNo:0,reqN:null};
 
 /* ---------- 渲染 ---------- */
 function $(id){return document.getElementById(id);}
 function go(tab){
   ST.tab=tab;
   if(tab!=="practice"){document.body.classList.remove("practicing");}
+  var hl=({home:"home",practice:"home",setup:"home",review:"home"})[tab]||tab;
   var ts=document.querySelectorAll(".tabbar .tb");
-  for(var i=0;i<ts.length;i++){ts[i].classList.toggle("on",ts[i].getAttribute("data-tab")===tab||(tab==="practice"&&ts[i].getAttribute("data-tab")==="home"));}
+  for(var i=0;i<ts.length;i++){ts[i].classList.toggle("on",ts[i].getAttribute("data-tab")===hl);}
   render();
   window.scrollTo(0,0);
 }
 function render(){
   var v=$("view");
   if(ST.tab==="home")v.innerHTML=viewHome();
+  else if(ST.tab==="setup")v.innerHTML=viewSetup();
+  else if(ST.tab==="review")v.innerHTML=viewReview();
   else if(ST.tab==="practice")v.innerHTML=viewPractice();
   else if(ST.tab==="result")v.innerHTML=viewResult();
   else if(ST.tab==="wrong")v.innerHTML=viewWrong();
@@ -1021,22 +1032,29 @@ function render(){
   bind();
   $("tbTitle").textContent=titles[ST.tab]||"今日练习";
 }
-var titles={home:"今日练习",practice:"练习中",result:"批改结果",wrong:"错题本",stats:"学习统计",settings:"设置"};
+var titles={home:"今日练习",setup:"开始练习",review:"练习回顾",practice:"练习中",result:"批改结果",wrong:"错题本",stats:"学习统计",settings:"设置"};
 
 function dstr(){
   var d=today();return (d.slice(5).replace("-","月"))+"日 星期"+weekday(d);
 }
 function progressOf(){
-  var day=getDay(today()),tot=0,done=0,cor=0,all=0;
-  SUBJ_KEYS.forEach(function(k){if(day[k]){done++;tot+=day[k].score;all+=day[k].total;}});
-  return {done:done,rate:all?Math.round(tot/all*100):0,all:all,cor:tot};
+  var day=getDay(today()),tot=0,cor=0,all=0,done={},k,i;
+  SUBJ_KEYS.forEach(function(k){
+    var ss=day.sessions.filter(function(s){return s.subj===k;});
+    if(ss.length){done[k]=1;for(i=0;i<ss.length;i++){tot+=ss[i].score||0;all+=ss[i].total||0;}}
+    else if(day[k]){done[k]=1;tot+=day[k].score||0;all+=day[k].total||0;}
+  });
+  var dn=0;for(k in done)dn++;
+  return {done:dn,rate:all?Math.round(tot/all*100):0,all:all,cor:tot,bySubj:done};
 }
 function streakDays(){
   var d=new Date(),n=0;
   for(var i=0;i<400;i++){
     var key=d.getFullYear()+"-"+p2(d.getMonth()+1)+"-"+p2(d.getDate());
     var day=load(dayKey(key),null);
-    var hit=false;SUBJ_KEYS.forEach(function(k){if(day&&day[k])hit=true;});
+    var hit=false;
+    if(day&&day.sessions&&day.sessions.length)hit=true;
+    if(!hit){SUBJ_KEYS.forEach(function(k){if(day&&day[k])hit=true;});}
     if(hit)n++;
     else if(i>0)break;
     d.setDate(d.getDate()-1);
@@ -1054,14 +1072,15 @@ function viewHome(){
     {k:"en",n:"英语对话",s:"译林3A · 对话理解选择题",c:"#b060c0"}
   ].filter(function(s){return CN_ON||s.k!=="cn";});
   var pct=Math.round(pr.done/SUBJ_KEYS.length*100);
+  var groups=day.sessions.length;
   var html="";
   html+='<div class="card"><div class="row">'+
     '<div class="ring"><svg width="78" height="78"><circle cx="39" cy="39" r="33" fill="none" stroke="#eef2f5" stroke-width="8"/>'+
     '<circle cx="39" cy="39" r="33" fill="none" stroke="#1f8a70" stroke-width="8" stroke-linecap="round" stroke-dasharray="'+(2*Math.PI*33)+'" stroke-dashoffset="'+(2*Math.PI*33*(1-pct/100))+'"/></svg>'+
     '<div class="val"><b>'+pr.done+'/'+SUBJ_KEYS.length+'</b><span>今日科目</span></div></div>'+
     '<div style="flex:1"><div style="font-weight:700;font-size:16px">'+["今天也要坚持哦","开始今天的练习","每日 20 分钟"][pr.done===0?0:(pr.done>=SUBJ_KEYS.length?2:1)]+'</div>'+
-    '<div class="muted" style="margin-top:3px">已完成 '+pr.all+' 题 · 正确率 '+pr.rate+'% · 目标 '+S.goalMin+' 分钟</div>'+
-    (pr.done>=SUBJ_KEYS.length?'<div style="margin-top:6px;color:var(--brand);font-weight:600;font-size:13px">今日任务已全部完成</div>':'')+
+    '<div class="muted" style="margin-top:3px">已完成 '+groups+' 组 / '+pr.all+' 题 · 正确率 '+pr.rate+'% · 目标 '+S.goalMin+' 分钟</div>'+
+    (pr.done>=SUBJ_KEYS.length?'<div style="margin-top:6px;color:var(--brand);font-weight:600;font-size:13px">每科都练过了，想加练可以继续开新的一组</div>':'')+
     '</div></div></div>';
   var standalone=(window.matchMedia&&window.matchMedia('(display-mode: standalone)').matches)||window.navigator.standalone===true;
   var isWx=/MicroMessenger/i.test(navigator.userAgent||"");
@@ -1072,13 +1091,28 @@ function viewHome(){
       '<button class="btn sm" style="margin-top:8px" id="hidePwaTip">知道了，不再提示</button></div>';
   }
   subs.forEach(function(s){
-    var rec=day[s.k];
-    var todo=s.k==="cn"?cnPool().length:S.count[s.k];
-    var right=rec?'<span class="badge done">'+rec.score+"/"+rec.total+" ✓</span>":'<span class="badge todo">'+todo+" 题</span>";
-    html+='<button class="subj" data-go="'+s.k+'">'+
+    var gs=day.sessions.filter(function(x){return x.subj===s.k;});
+    var qt=0,ct=0,secs=0;
+    gs.forEach(function(x){qt+=x.total||0;ct+=x.score||0;secs+=x.sec||0;});
+    var todo=s.k==="cn"?cnPool().length:(S.lastN[s.k]||S.count[s.k]);
+    var right=gs.length?'<span class="badge done">'+ct+"/"+qt+' ✓</span>':'<span class="badge todo">'+todo+" 题</span>";
+    html+='<button class="subj" data-setup="'+s.k+'">'+
       '<div class="ico" style="background:'+s.c+'">'+s.n.charAt(0)+'</div>'+
-      '<div style="flex:1"><div class="n">'+s.n+'</div><div class="s">'+s.s+'</div></div>'+
+      '<div style="flex:1"><div class="n">'+s.n+(gs.length?' <span class="tiny">今日第 '+(gs.length+1)+' 组</span>':'')+'</div>'+
+      '<div class="s">'+(gs.length?('已做 '+gs.length+' 组 · '+qt+' 题 · 正确率 '+(qt?Math.round(ct/qt*100):0)+'%'):s.s)+'</div></div>'+
       right+'<span class="chev">›</span></button>';
+    if(gs.length){
+      html+='<div class="card tight" style="margin-top:6px">';
+      gs.forEach(function(x,gi){
+        var r2=x.total?Math.round(x.score/x.total*100):0;
+        var col=r2>=90?"var(--green)":(r2>=60?"var(--amber)":"var(--red)");
+        html+='<div class="frow" data-review="'+x.id+'"><div><div style="font-weight:600">第 '+(gi+1)+' 组 · '+x.total+' 题</div>'+
+          '<div class="tiny">'+esc(x.at||"")+' · 用时 '+secTxt(x.sec)+'</div></div>'+
+          '<div style="text-align:right"><div style="font-weight:700;color:'+col+'">'+x.score+' / '+x.total+'</div>'+
+          '<div class="tiny" style="color:var(--brand)">看批改 ›</div></div></div>';
+      });
+      html+='</div>';
+    }
   });
   if(WRONG.length){
     html+='<div class="card tight between" style="margin-top:14px"><div><div style="font-weight:600">错题本</div><div class="tiny">共 '+WRONG.length+' 道错题待复习</div></div><button class="btn ghost sm" style="width:auto;padding:8px 14px" data-tabgo="wrong">去复习</button></div>';
@@ -1093,11 +1127,17 @@ var BATCH=(+load("batch",0))||0;
 function regen(){
   if(!ST.subj)return;
   BATCH++;save("batch",BATCH);
-  startPractice(ST.subj);
+  startPractice(ST.subj,ST.reqN);
   toast("已换一批新题");
 }
-function startPractice(k){
-  ST.subj=k;ST.qs=buildQuestions(k,today()+"#"+BATCH);ST.idx=0;ST.redo=false;
+function startPractice(k,n){
+  ST.subj=k;ST.redo=false;
+  ST.reqN=(typeof n==="number"&&n>0)?n:null;
+  if(ST.reqN){S.lastN[k]=ST.reqN;saveS();}
+  var gs=todaySessions(k);
+  ST.groupNo=gs.length;              // 第几组 → 题目种子不同，一天多组不重题
+  ST.qs=buildQuestions(k,today()+"#"+BATCH+"#"+k+"#"+ST.groupNo,ST.reqN);
+  ST.idx=0;
   ST.answers=new Array(ST.qs.length).fill("");
   ST.plays=new Array(ST.qs.length).fill(0);
   ST.curBlank=0;ST.hwStrokes=[];ST.drafts=new Array(ST.qs.length).fill(null);ST.draft=false;
@@ -1124,6 +1164,37 @@ function playCountHtml(i){
     return '已听 <b style="color:var(--brand)">'+used+'</b> / '+S.replay+' 遍'+(used>=S.replay?' · 本题已听完':' · 还能听 '+playLeft(i)+' 遍');
   }
   return '已听 '+used+' 遍（不限次数）';
+}
+
+/* ---------- 开练前：设置本次题量（一天可做 N 组） ---------- */
+var SUBJ_NAME={cn:"语文默写",ma:"数学计算",en:"英语对话"};
+function viewSetup(){
+  var k=ST.setupSubj;
+  if(!k)return '<div class="empty">请先在首页选一个科目<br><button class="btn sm" style="margin-top:12px" data-tabgo="home">回首页</button></div>';
+  var gs=todaySessions(k),def=S.count[k];
+  var cur=ST.setupN||S.lastN[k]||def;
+  var lim={cn:[1,30],ma:[1,40],en:[1,20]}[k]||[1,30];
+  var presets={cn:[6,8,10],ma:[10,15,20,30],en:[5,8,10,15]}[k]||[10,15,20];
+  var list=[],addv=function(v){if(v>=lim[0]&&v<=lim[1]&&list.indexOf(v)<0)list.push(v);};
+  addv(def);presets.forEach(addv);
+  list.sort(function(a,b){return a-b;});
+  var html='<div class="card"><div style="font-weight:700;font-size:16px">'+SUBJ_NAME[k]+' · 今日第 '+(gs.length+1)+' 组</div>'+
+    '<div class="tiny" style="margin-top:4px;line-height:1.7">'+(gs.length?('今天已完成 '+gs.length+' 组，这是一组新题，不会和做过的重复。'):'一组做完后，回到首页还能继续开下一组。')+'</div></div>';
+  if(k==="cn"){
+    html+='<div class="card"><div style="font-weight:700">本次默写范围</div>'+
+      '<div class="tiny" style="margin:4px 0 10px">语文按课出题，题量由课本决定，不用选数量。</div>'+
+      '<div class="tiny" style="padding:8px 10px;background:#f2f7f5;border-radius:8px">当前：<b>'+cnLessonText()+'</b> · 共 <b>'+cnPool().length+'</b> 题（课次在设置里改）</div></div>';
+  }else{
+    html+='<div class="card"><div style="font-weight:700">本次练多少题？</div>'+
+      '<div class="tiny" style="margin:4px 0 10px">默认 '+def+' 题，可在「设置 → 每日题量」改默认值</div><div class="chips">'+
+      list.map(function(v){return '<button class="chip'+(cur===v?" on":"")+'" data-n="'+v+'">'+v+' 题'+(v===def?" · 默认":"")+'</button>';}).join("")+
+      '</div><div class="frow" style="margin-top:12px"><div class="lab">自定义题量</div><div class="stepper">'+
+      '<button data-nop="-">−</button><div class="v">'+cur+'</div><button data-nop="+">＋</button></div></div></div>';
+  }
+  html+='<div class="card tight"><div class="tiny">题型、单元、作答方式等都在「设置」里调整；本次只决定做几题。</div></div>';
+  html+='<div class="btnrow"><button class="btn ghost" style="flex:0 0 34%" id="setupBack">返回</button>'+
+    '<button class="btn" style="flex:1" id="goBtn">开始第 '+(gs.length+1)+' 组（'+cur+' 题）</button></div>';
+  return html;
 }
 
 /* ---------- 手写汉字：字形匹配识别（离线，不联网） ---------- */
@@ -1402,7 +1473,7 @@ function viewPractice(){
   var q=ST.qs[ST.idx],n=ST.qs.length,i=ST.idx;
   var subName=({cn:"语文默写",ma:"数学计算",en:"英语对话"})[ST.subj];
   if(ST.subj==="cn"&&q.unit)subName+=" · "+q.unit;
-  var html='<div class="qmeta"><span>'+subName+'</span><span>'+(i+1)+' / '+n+'</span></div>';
+  var html='<div class="qmeta"><span>'+subName+(ST.redo?' · 错题重做':' · 第 '+(ST.groupNo+1)+' 组')+'</span><span>'+(i+1)+' / '+n+'</span></div>';
   html+='<div class="pbar"><i style="width:'+((i)/n*100)+'%"></i></div>';
   var body="";
   if(q.kind==="cn"){
@@ -1531,27 +1602,27 @@ function finish(){
   WRONG=WRONG.slice(0,300);saveWrong();
   var sec=Math.round((Date.now()-ST.start)/1000);
   var rec={score:score,total:ST.qs.length,sec:sec};
+  var sid=null;
   if(!redo){
-    var d=today(),day=getDay(d);day[ST.subj]=rec;saveDay(d,day);
+    var d=today(),day=getDay(d);
+    day[ST.subj]=rec;                 // 兼容旧数据
+    sid=String(Date.now());
+    day.sessions.push({
+      id:sid,subj:ST.subj,n:ST.qs.length,score:score,total:ST.qs.length,sec:sec,
+      at:nowHM(),no:ST.groupNo+1,
+      details:details.map(function(x){x.q.s=ST.subj;return {ok:x.ok,u:x.u,q:x.q};})
+    });
+    saveDay(d,day);
   }
-  ST.result={score:score,total:ST.qs.length,sec:sec,details:details,subj:ST.subj,redo:redo};
+  ST.result={score:score,total:ST.qs.length,sec:sec,details:details,subj:ST.subj,redo:redo,sid:sid,groupNo:ST.groupNo};
   ST.tab="result";document.body.classList.remove("practicing");
   if(window.speechSynthesis)speechSynthesis.cancel();
   render();window.scrollTo(0,0);
 }
-function viewResult(){
-  var R=ST.result;
-  if(!R)return '<div class="empty">暂无结果</div>';
-  var pct=Math.round(R.score/R.total*100);
-  var mm=Math.floor(R.sec/60),ss=R.sec%60;
-  var col=pct>=90?"var(--green)":(pct>=60?"var(--amber)":"var(--red)");
-  var html='<div class="card"><div class="score"><div class="num" style="color:'+col+'">'+R.score+'<small> / '+R.total+'</small></div>'+
-    '<div class="muted" style="margin-top:4px">正确率 '+pct+'% · 用时 '+mm+'分'+(ss<10?"0":"")+ss+'秒</div>'+
-    (R.redo?'<div class="tiny" style="margin-top:6px;color:var(--brand)">错题重做 · 答对已自动移出错题本</div>':'')+'</div>';
-  html+='<div class="btnrow" style="margin-top:14px"><button class="btn ghost" id="redoBtn">重做错题</button><button class="btn" id="homeBtn">回到首页</button></div></div>';
-  html+='<div class="card"><div style="font-weight:700;margin-bottom:6px">逐题批改</div>';
-  R.details.forEach(function(d,i){
-    var q=d.q;
+function detailsHtml(details){
+  var html="",i;
+  (details||[]).forEach(function(d,i){
+    var q=d.q||{};
     var qtext=q.text||(q.q?(q.say?String(q.say).split("\n").join(" ")+" —— ":"")+q.q:("听音："+q.say+(q.zh?"（"+q.zh+"）":"")));
     var ans=q.ans;
     html+='<div class="qitem"><div class="q"><span class="tag '+(d.ok?"ok":"no")+'">'+(d.ok?"正确":"错误")+'</span>'+(i+1)+'. '+esc(qtext)+'</div>';
@@ -1562,8 +1633,53 @@ function viewResult(){
     if(q.kind==="en")html+='<div class="tiny" style="margin-top:4px">原文：'+esc(q.say)+'</div>';
     html+='</div>';
   });
-  html+='</div>';
+  return html||'<div class="tiny">没有题目记录</div>';
+}
+function resultCardHtml(R,sub){
+  var pct=R.total?Math.round(R.score/R.total*100):0;
+  var col=pct>=90?"var(--green)":(pct>=60?"var(--amber)":"var(--red)");
+  return '<div class="card"><div class="score"><div class="num" style="color:'+col+'">'+R.score+'<small> / '+R.total+'</small></div>'+
+    '<div class="muted" style="margin-top:4px">正确率 '+pct+'% · 用时 '+secTxt(R.sec)+'</div>'+
+    (sub?'<div class="tiny" style="margin-top:6px;color:var(--brand)">'+sub+'</div>':'')+'</div>';
+}
+function viewResult(){
+  var R=ST.result;
+  if(!R)return '<div class="empty">暂无结果</div>';
+  var wrongN=R.details.filter(function(d){return !d.ok;}).length;
+  var html=resultCardHtml(R,R.redo?'错题重做 · 答对已自动移出错题本':'第 '+(R.groupNo+1)+' 组已完成，已封存');
+  html+='<div class="btnrow" style="margin-top:14px">'+(wrongN?'<button class="btn ghost" id="redoBtn">重做错题（'+wrongN+'）</button>':'')+
+    '<button class="btn line" id="againBtn">再来一组</button><button class="btn" id="homeBtn">首页</button></div></div>';
+  html+='<div class="card"><div style="font-weight:700;margin-bottom:6px">逐题批改</div>'+detailsHtml(R.details)+'</div>';
+  html+='<div class="tiny" style="text-align:center;margin:14px 0 30px">这一组已封存，不能再重做；错题可以在错题本里复习。</div>';
   return html;
+}
+/* 已完成的一组的「回顾」页：只能看，不能再作答 */
+function viewReview(){
+  var s=ST.reviewS;
+  if(!s)return '<div class="empty">这组记录找不到了<br><button class="btn sm" style="margin-top:12px" data-tabgo="home">回首页</button></div>';
+  var R={score:s.score,total:s.total,sec:s.sec,details:s.details||[]};
+  var wrongN=(s.details||[]).filter(function(d){return !d.ok;}).length;
+  var html=resultCardHtml(R,SUBJ_NAME[s.subj]+' · 第 '+(s.no||1)+' 组 · '+(s.at||"")+' 完成');
+  html+='<div class="btnrow" style="margin-top:14px">'+(wrongN?'<button class="btn ghost" id="redoBtn2">重做本组错题（'+wrongN+'）</button>':'')+
+    '<button class="btn" id="homeBtn">首页</button></div></div>';
+  html+='<div class="card"><div style="font-weight:700;margin-bottom:6px">逐题批改</div>'+detailsHtml(R.details)+'</div>';
+  html+='<div class="tiny" style="text-align:center;margin:14px 0 30px">已完成的一组只能查看，想加练请回首页开新的一组。</div>';
+  return html;
+}
+/* 错题重做（来自结果页或某组回顾） */
+function startRedoList(qs){
+  if(!qs||!qs.length){toast("没有可重做的错题");return;}
+  qs.forEach(function(q){q.s=q.s||ST.subj;});
+  ST.subj=qs[0].s||ST.subj||"ma";
+  ST.qs=qs;ST.idx=0;
+  ST.answers=qs.map(function(){return "";});
+  ST.plays=qs.map(function(){return 0;});
+  ST.curBlank=0;ST.hwStrokes=[];ST.drafts=new Array(qs.length).fill(null);ST.draft=false;
+  ST.redo=true;ST.result=null;ST.groupNo=0;ST.reqN=null;
+  ST.start=Date.now();ST.tab="practice";
+  document.body.classList.add("practicing");
+  render();window.scrollTo(0,0);
+  if(ST.subj==="en"&&S.autoSpeak&&speechUnlocked)setTimeout(autoPlay,350);
 }
 
 /* 错题记录 → 可练习题对象（尽量从原题库还原题型与选项） */
@@ -1646,7 +1762,11 @@ function viewStats(){
     var k=dd.getFullYear()+"-"+p2(dd.getMonth()+1)+"-"+p2(dd.getDate());
     var rec=load(dayKey(k),null);
     var tot=0,cor=0;
-    SUBJ_KEYS.forEach(function(s){if(rec&&rec[s]){tot+=rec[s].total;cor+=rec[s].score;}});
+    if(rec&&rec.sessions&&rec.sessions.length){
+      rec.sessions.forEach(function(s){tot+=s.total||0;cor+=s.score||0;});
+    }else{
+      SUBJ_KEYS.forEach(function(s){if(rec&&rec[s]){tot+=rec[s].total;cor+=rec[s].score;}});
+    }
     days.push({k:k,tot:tot,cor:cor,rate:tot?Math.round(cor/tot*100):0});
   }
   var active=days.filter(function(x){return x.tot>0;});
@@ -1675,7 +1795,7 @@ function viewStats(){
 function viewSettings(){
   $("tbStreak").textContent="";
   var html="";
-  html+='<div class="card"><div style="font-weight:700;margin-bottom:4px">每日题量</div><div class="tiny">数学、英语按数量出题，建议总量约 20 分钟完成</div>';
+  html+='<div class="card"><div style="font-weight:700;margin-bottom:4px">默认题量</div><div class="tiny">每次开练前可以临时改，一天想做几组就开几组</div>';
   [["ma","数学计算",5,40],["en","英语对话",3,20]].forEach(function(x){
     html+='<div class="frow"><div class="lab">'+x[1]+'</div><div class="stepper"><button data-cnt="'+x[0]+'" data-op="-">−</button><div class="v">'+S.count[x[0]]+'</div><button data-cnt="'+x[0]+'" data-op="+">＋</button></div></div>';
   });
@@ -1758,9 +1878,34 @@ function restoreAnswer(v){
 function bind(){
   var v=$("view");
   restoreAnswer(v);
-  v.querySelectorAll("[data-go]").forEach(function(b){
-    b.onclick=function(){startPractice(b.getAttribute("data-go"));};
+  v.querySelectorAll("[data-setup]").forEach(function(b){
+    b.onclick=function(){ST.setupSubj=b.getAttribute("data-setup");ST.setupN=null;go("setup");};
   });
+  v.querySelectorAll("[data-review]").forEach(function(b){
+    b.onclick=function(){
+      var s=findSession(b.getAttribute("data-review"));
+      if(!s){toast("这组记录找不到了");return;}
+      ST.reviewS=s;go("review");
+    };
+  });
+  // 开练设置页
+  v.querySelectorAll("[data-n]").forEach(function(b){
+    b.onclick=function(){ST.setupN=parseInt(b.getAttribute("data-n"),10);render();};
+  });
+  v.querySelectorAll("[data-nop]").forEach(function(b){
+    b.onclick=function(){
+      var k=ST.setupSubj,lim={cn:[1,30],ma:[1,40],en:[1,20]}[k]||[1,30];
+      var cur=ST.setupN||S.lastN[k]||S.count[k];
+      ST.setupN=Math.max(lim[0],Math.min(lim[1],cur+(b.getAttribute("data-nop")==="+"?1:-1)));
+      render();
+    };
+  });
+  var sbk=$("setupBack");if(sbk)sbk.onclick=function(){go("home");};
+  var gb=$("goBtn");
+  if(gb)gb.onclick=function(){
+    var k=ST.setupSubj;
+    startPractice(k,ST.setupN||S.lastN[k]||S.count[k]);
+  };
   v.querySelectorAll("[data-tabgo]").forEach(function(b){
     b.onclick=function(){go(b.getAttribute("data-tabgo"));};
   });
@@ -1848,11 +1993,15 @@ function bind(){
   var rb=$("redoBtn");
   if(rb)rb.onclick=function(){
     var wrong=ST.result.details.filter(function(d){return !d.ok;}).map(function(d){d.q.s=ST.subj;return d.q;});
-    if(!wrong.length){toast("全部正确，无需重做");return;}
-    ST.qs=wrong;ST.idx=0;ST.answers=new Array(wrong.length).fill("");ST.plays=new Array(wrong.length).fill(0);
-    ST.redo=true;
-    ST.start=Date.now();ST.tab="practice";document.body.classList.add("practicing");render();window.scrollTo(0,0);
+    startRedoList(wrong);
   };
+  var rb2=$("redoBtn2");
+  if(rb2)rb2.onclick=function(){
+    var s=ST.reviewS;if(!s)return;
+    startRedoList((s.details||[]).filter(function(d){return !d.ok;}).map(function(d){d.q.s=s.subj;return d.q;}));
+  };
+  var ag=$("againBtn");
+  if(ag)ag.onclick=function(){ST.setupSubj=(ST.result&&ST.result.subj)||ST.subj;ST.setupN=null;go("setup");};
   var hb=$("homeBtn");if(hb)hb.onclick=function(){go("home");};
   // 错题本
   v.querySelectorAll("[data-del]").forEach(function(b){
@@ -1964,7 +2113,9 @@ function bind(){
   };
   // 顶部日期
   if(ST.tab==="home"){$("tbDate").textContent=dstr();$("tbStreak").textContent="连续 "+streakDays()+" 天";}
-  else if(ST.tab==="practice"){$("tbDate").textContent=({cn:"语文默写",ma:"数学计算",en:"英语对话"})[ST.subj];}
+  else if(ST.tab==="practice"){$("tbDate").textContent=SUBJ_NAME[ST.subj]+(ST.redo?" · 错题重做":" · 第 "+(ST.groupNo+1)+" 组");}
+  else if(ST.tab==="setup"){$("tbDate").textContent=SUBJ_NAME[ST.setupSubj]||"开始练习";}
+  else if(ST.tab==="review"){$("tbDate").textContent=(ST.reviewS?SUBJ_NAME[ST.reviewS.subj]:"练习")+" · 回顾";}
   else if(ST.tab==="result"){$("tbDate").textContent="批改完成";}
   else $("tbDate").textContent="三年级 · 每日练习";
 }
