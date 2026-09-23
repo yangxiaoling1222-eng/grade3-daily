@@ -112,6 +112,8 @@ input,select,textarea{font-family:inherit;font-size:16px;color:var(--t1)}
 .chips{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
 .chip{padding:7px 13px;border-radius:20px;background:#eef2f5;font-size:13px;color:var(--t2)}
 .chip.on{background:var(--brand);color:#fff;font-weight:600}
+.drafttoggle{display:flex;justify-content:center;gap:8px;margin:8px 0 12px}
+.drafttoggle .chip{min-width:80px;text-align:center}
 select.ctl{padding:8px 12px;border:1px solid var(--line);border-radius:10px;background:#fff}
 textarea{width:100%;min-height:120px;border:1.5px solid var(--line);border-radius:12px;padding:12px;outline:none;font-size:13px;font-family:ui-monospace,Menlo,Consolas,monospace}
 
@@ -1029,7 +1031,7 @@ function startPractice(k){
   ST.subj=k;ST.qs=buildQuestions(k,today());ST.idx=0;ST.redo=false;
   ST.answers=new Array(ST.qs.length).fill("");
   ST.plays=new Array(ST.qs.length).fill(0);
-  ST.curBlank=0;ST.hwStrokes=[];
+  ST.curBlank=0;ST.hwStrokes=[];ST.drafts=new Array(ST.qs.length).fill(null);ST.draft=false;
   ST.start=Date.now();ST.tab="practice";
   document.body.classList.add("practicing");
   render();window.scrollTo(0,0);
@@ -1267,6 +1269,45 @@ function hwInit(){
   cv.addEventListener("mouseup",end);
   cv.addEventListener("mouseleave",end);
 }
+/* ---------- 数学草稿板（竖式） ---------- */
+function draftHtml(){
+  return '<div class="card tight"><div style="font-weight:600;font-size:14px;margin-bottom:6px">草稿纸（用手指写竖式）</div>'+
+    '<canvas id="draftCanvas" width="300" height="240" style="width:100%;height:240px;background:#fff;border:1px solid #d0d7de;border-radius:8px;touch-action:none;"></canvas>'+
+    '<div style="text-align:center;margin-top:8px"><button class="btn line sm" id="draftClear">清空草稿</button></div></div>';
+}
+var DRAFT=null;
+function drawDraftBg(ctx,w,h){
+  ctx.fillStyle="#fff";ctx.fillRect(0,0,w,h);
+  ctx.save();ctx.strokeStyle="#e8ecf1";ctx.lineWidth=1;
+  for(var y=30;y<h;y+=40){ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(w,y);ctx.stroke();}
+  ctx.restore();
+}
+function draftInit(){
+  var c=$("draftCanvas");if(!c)return;
+  var ctx=c.getContext("2d");
+  ctx.lineWidth=3;ctx.lineCap="round";ctx.lineJoin="round";ctx.strokeStyle="#333";
+  drawDraftBg(ctx,c.width,c.height);
+  var prev=ST.drafts[ST.idx];
+  if(prev){var img=new Image();img.onload=function(){ctx.drawImage(img,0,0);};img.src=prev;}
+  DRAFT={c:c,ctx:ctx,drawing:false,last:null};
+  function pos(e){var r=c.getBoundingClientRect();var t=(e.touches&&e.touches[0])?e.touches[0]:e;return [(t.clientX-r.left)*(c.width/r.width),(t.clientY-r.top)*(c.height/r.height)];}
+  function start(e){if(e.cancelable)e.preventDefault();DRAFT.drawing=true;DRAFT.last=pos(e);DRAFT.ctx.beginPath();DRAFT.ctx.moveTo(DRAFT.last[0],DRAFT.last[1]);}
+  function move(e){if(!DRAFT.drawing)return;if(e.cancelable)e.preventDefault();var p=pos(e);DRAFT.ctx.lineTo(p[0],p[1]);DRAFT.ctx.stroke();DRAFT.last=p;}
+  function end(){if(!DRAFT.drawing)return;DRAFT.drawing=false;ST.drafts[ST.idx]=DRAFT.c.toDataURL();}
+  c.addEventListener("touchstart",start,{passive:false});
+  c.addEventListener("touchmove",move,{passive:false});
+  c.addEventListener("touchend",end,{passive:true});
+  c.addEventListener("touchcancel",end,{passive:true});
+  c.addEventListener("mousedown",start);
+  c.addEventListener("mousemove",move);
+  c.addEventListener("mouseup",end);
+  c.addEventListener("mouseleave",end);
+}
+function draftClear(){
+  if(!DRAFT)return;
+  drawDraftBg(DRAFT.ctx,DRAFT.c.width,DRAFT.c.height);
+  ST.drafts[ST.idx]=null;
+}
 function hwRecognize(){
   var q=ST.qs[ST.idx];
   var box=$("cands");
@@ -1328,46 +1369,58 @@ function viewPractice(){
       renderedM+=esc(partsM[p3]);
       if(p3<partsM.length-1)renderedM+='<input class="blankinp" data-i="'+p3+'"'+rom+' style="width:84px;padding:2px 4px;border:none;border-bottom:2px solid var(--brand);text-align:center;outline:none;font-weight:600;color:var(--brand-dark);background:transparent" autocomplete="off">';
     }
-    body='<div class="qbox"><div class="qtext">'+renderedM+'</div>'+
-      (q.tip?'<div class="hint">提示：'+esc(q.tip)+'</div>':'')+'</div>';
     if(partsM.length===1){
       body='<div class="qbox"><div class="qtext">'+esc(q.text)+'</div>'+
-        (q.tip?'<div class="hint">提示：'+esc(q.tip)+'</div>':'')+
-        '<input class="ansinput" id="ans0"'+rom+' placeholder="'+(S.maPad?"用下面键盘作答":"输入答案")+'" autocomplete="off" style="font-size:20px;font-weight:600;text-align:center;letter-spacing:1px"></div>';
+        (q.tip?'<div class="hint">提示：'+esc(q.tip)+'</div>':'')+'</div>'+
+        '<div class="drafttoggle"><button class="chip'+(ST.draft?"":" on")+'" id="ansTab">答题</button><button class="chip'+(ST.draft?" on":"")+'" id="draftTab">打草稿</button></div>'+
+        '<div id="ansArea" style="display:'+(ST.draft?'none':'block')+'"><input class="ansinput" id="ans0"'+rom+' placeholder="'+(S.maPad?"用下面键盘作答":"输入答案")+'" autocomplete="off" style="font-size:20px;font-weight:600;text-align:center;letter-spacing:1px"></div>'+
+        '<div id="draftArea" style="display:'+(ST.draft?'block':'none')+'">'+draftHtml()+'</div>';
+    }else{
+      body='<div class="qbox"><div class="qtext">'+renderedM+'</div>'+
+        (q.tip?'<div class="hint">提示：'+esc(q.tip)+'</div>':'')+'</div>';
     }
-    if(S.maPad)body+=numPadHtml();
+    if(S.maPad&&partsM.length===1)body+='<div id="padArea" style="display:'+(ST.draft?'none':'block')+'">'+numPadHtml()+'</div>';
+    if(S.maPad&&partsM.length>1)body+=numPadHtml();
   }else{
-    var canSpeak=!!window.speechSynthesis;
+    var isWeChat=/MicroMessenger/i.test(navigator.userAgent||"");
+    var canSpeak=!!window.speechSynthesis&&!isWeChat;
     var left=playLeft(i),used=ST.plays[i]||0;
-    if(canSpeak&&!speechUnlocked&&used===0){
-      body+='<div class="card tight" style="background:#fff8e6;border:1px solid #ffe0a3">'+
-        '<div style="font-weight:600;font-size:14px">先点一下，声音才会出来</div>'+
-        '<div class="tiny" style="margin:4px 0 10px">手机浏览器规定：第一次朗读必须是你点的，之后就会自动播放</div>'+
-        '<button class="btn sm" id="audioBtn">点这里开启朗读</button></div>';
+    if(isWeChat){
+      body+='<div class="card tight" style="background:#fffbe6;border:1px solid #ffe58f">'+
+        '<div style="font-weight:600;font-size:15px">检测到你在微信中打开，英语听力无法播放</div>'+
+        '<div class="tiny" style="margin-top:6px">请点右上角「⋯」→「在浏览器打开」；若继续在此做题，请家长朗读下方句子。</div></div>'+
+        '<div class="card tight"><div class="tiny">朗读原文</div><div style="margin-top:6px;font-weight:600;font-size:16px">'+esc(q.say)+'</div>'+(q.zh?'<div class="tiny" style="margin-top:4px">'+esc(q.zh)+'</div>':'')+'</div>';
+    }else{
+      if(canSpeak&&!speechUnlocked&&used===0){
+        body+='<div class="card tight" style="background:#fff8e6;border:1px solid #ffe0a3">'+
+          '<div style="font-weight:600;font-size:14px">先点一下，声音才会出来</div>'+
+          '<div class="tiny" style="margin:4px 0 10px">手机浏览器规定：第一次朗读必须是你点的，之后就会自动播放</div>'+
+          '<button class="btn sm" id="audioBtn">点这里开启朗读</button></div>';
+      }
+      if(canSpeak&&speechUnlocked&&!hasEnVoice()){
+        body+='<div class="card tight" style="background:#fff1f0;border:1px solid #ffd0cc">'+
+          '<div style="font-weight:600;font-size:14px">这台手机没装英文语音包</div>'+
+          '<div class="tiny" style="margin-top:4px">安卓：设置 → 系统 → 语言和输入法 → 文字转语音（TTS）→ 下载「英语（美国）」；iPhone：设置 → 辅助功能 → 朗读内容 → 声音 → 英语。装好前可以先点下面的「看原文」做题。</div></div>';
+      }
+      body+='<button class="play" id="playBtn"'+(left<=0?" disabled":"")+'>'+
+        '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M11 5L6 9H3v6h3l5 4V5z" fill="currentColor" stroke="currentColor"/><path d="M16 9a4 4 0 010 6" stroke="currentColor" stroke-linecap="round"/><path d="M19 6a8 8 0 010 12" stroke="currentColor" stroke-linecap="round"/></svg>'+
+        '<span id="playTxt">'+(left<=0?"已听完 "+used+" 遍":(used?"再听一遍（第 "+(used+1)+" 遍）":"点击播放（可听 "+(S.replay>0?S.replay:99)+" 遍）"))+'</span></button>';
+      if(!canSpeak)body+='<div class="card tight"><div class="muted">当前浏览器不支持朗读，请家长朗读下方句子</div><div style="margin-top:8px;font-weight:600">'+esc(q.say)+'</div></div>';
+      body+='<div class="tiny" id="playCnt" style="text-align:center;margin-top:6px">'+playCountHtml(i)+'</div>';
+      if(canSpeak){
+        body+='<div style="text-align:center;margin-top:10px"><button class="tiny" id="showSayBtn" style="text-decoration:underline">'+(S.showSay?"隐藏原文":"没声音？点这里看原文")+'</button></div>'+
+          (S.showSay?'<div class="card tight" style="margin-top:8px"><div class="tiny">原文（可让家长照着读）</div><div style="margin-top:6px;font-weight:600;font-size:16px">'+esc(q.say)+'</div>'+(q.zh?'<div class="tiny" style="margin-top:4px">'+esc(q.zh)+'</div>':'')+'</div>':'');
+      }
     }
-    if(canSpeak&&speechUnlocked&&!hasEnVoice()){
-      body+='<div class="card tight" style="background:#fff1f0;border:1px solid #ffd0cc">'+
-        '<div style="font-weight:600;font-size:14px">这台手机没装英文语音包</div>'+
-        '<div class="tiny" style="margin-top:4px">安卓：设置 → 系统 → 语言和输入法 → 文字转语音（TTS）→ 下载「英语（美国）」；iPhone：设置 → 辅助功能 → 朗读内容 → 声音 → 英语。装好前可以先点下面的「看原文」做题。</div></div>';
-    }
-    body+='<button class="play" id="playBtn"'+(left<=0?" disabled":"")+'>'+
-      '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M11 5L6 9H3v6h3l5 4V5z" fill="currentColor" stroke="currentColor"/><path d="M16 9a4 4 0 010 6" stroke="currentColor" stroke-linecap="round"/><path d="M19 6a8 8 0 010 12" stroke="currentColor" stroke-linecap="round"/></svg>'+
-      '<span id="playTxt">'+(left<=0?"已听完 "+used+" 遍":(used?"再听一遍（第 "+(used+1)+" 遍）":"点击播放（可听 "+(S.replay>0?S.replay:99)+" 遍）"))+'</span></button>';
-    if(!canSpeak)body+='<div class="card tight"><div class="muted">当前浏览器不支持朗读，请家长朗读下方句子</div><div style="margin-top:8px;font-weight:600">'+esc(q.say)+'</div></div>';
     if(q.type==="fill"){
-      body+='<div class="qbox"><div class="qtext">听录音，写出你听到的句子</div>'+
+      body+='<div class="qbox"><div class="qtext">'+(isWeChat?"请朗读句子并写出英文":"听录音，写出你听到的句子")+'</div>'+
         '<input class="ansinput" id="ans0" placeholder="输入英文句子" autocomplete="off" autocapitalize="off"></div>';
     }else{
-      body+='<div class="qbox"><div class="qtext">'+(q.type==="word"?"听录音，选出你听到的单词":"听录音，选出正确的意思")+'</div><div class="opts" id="opts">';
+      body+='<div class="qbox"><div class="qtext">'+(q.type==="word"?(isWeChat?"请朗读并选出你听到的单词":"听录音，选出你听到的单词"):(isWeChat?"请朗读并选出正确的意思":"听录音，选出正确的意思"))+'</div><div class="opts" id="opts">';
       q.opts.forEach(function(o,oi){
         body+='<button class="opt" data-o="'+esc(o)+'"><span class="k">'+["A","B","C","D"][oi]+'</span><span>'+esc(o)+'</span></button>';
       });
       body+='</div></div>';
-    }
-    body+='<div class="tiny" id="playCnt" style="text-align:center;margin-top:6px">'+playCountHtml(i)+'</div>';
-    if(canSpeak){
-      body+='<div style="text-align:center;margin-top:10px"><button class="tiny" id="showSayBtn" style="text-decoration:underline">'+(S.showSay?"隐藏原文":"没声音？点这里看原文")+'</button></div>'+
-        (S.showSay?'<div class="card tight" style="margin-top:8px"><div class="tiny">原文（可让家长照着读）</div><div style="margin-top:6px;font-weight:600;font-size:16px">'+esc(q.say)+'</div>'+(q.zh?'<div class="tiny" style="margin-top:4px">'+esc(q.zh)+'</div>':'')+'</div>':'');
     }
   }
   html+=body;
@@ -1480,7 +1533,7 @@ function startRedoAll(){
   ST.qs=qs;ST.idx=0;
   ST.answers=qs.map(function(){return "";});
   ST.plays=qs.map(function(){return 0;});
-  ST.curBlank=0;ST.hwStrokes=[];
+  ST.curBlank=0;ST.hwStrokes=[];ST.drafts=new Array(ST.qs.length).fill(null);ST.draft=false;
   ST.redo=true;ST.result=null;
   ST.start=Date.now();ST.tab="practice";
   document.body.classList.add("practicing");
@@ -1650,7 +1703,10 @@ function bind(){
     p.style.display=open?"grid":"none";
     ub.textContent=open?"收起单位":"需要填单位？点这里";
   };
-  hwInit();
+  var at=$("ansTab");if(at)at.onclick=function(){ST.draft=false;render();};
+  var dt=$("draftTab");if(dt)dt.onclick=function(){ST.draft=true;render();};
+  var dc=$("draftClear");if(dc)dc.onclick=draftClear;
+  hwInit();draftInit();
   var hu=$("hwUndo");
   if(hu)hu.onclick=function(){
     ST.hwStrokes=[];
@@ -1673,13 +1729,13 @@ function bind(){
   if(nb)nb.onclick=function(){
     ST.answers[ST.idx]=collectAnswer();
     if(ST.answers[ST.idx]===""&&!confirm("本题还没有作答，确定继续吗？"))return;
-    if(ST.idx<ST.qs.length-1){ST.idx++;ST.curBlank=0;ST.hwStrokes=[];render();window.scrollTo(0,0);if(ST.subj==="en"&&S.autoSpeak&&speechUnlocked)setTimeout(autoPlay,300);}
+    if(ST.idx<ST.qs.length-1){ST.idx++;ST.curBlank=0;ST.hwStrokes=[];ST.draft=false;render();window.scrollTo(0,0);if(ST.subj==="en"&&S.autoSpeak&&speechUnlocked)setTimeout(autoPlay,300);}
     else finish();
   };
   var pv=$("prevBtn");
   if(pv)pv.onclick=function(){
     ST.answers[ST.idx]=collectAnswer();
-    if(ST.idx>0){ST.idx--;ST.curBlank=0;ST.hwStrokes=[];render();window.scrollTo(0,0);if(ST.subj==="en"&&S.autoSpeak&&speechUnlocked)setTimeout(autoPlay,300);}
+    if(ST.idx>0){ST.idx--;ST.curBlank=0;ST.hwStrokes=[];ST.draft=false;render();window.scrollTo(0,0);if(ST.subj==="en"&&S.autoSpeak&&speechUnlocked)setTimeout(autoPlay,300);}
   };
   var qb=$("quitBtn");
   if(qb)qb.onclick=function(){if(confirm("退出后本次作答不保存，确定吗？")){if(window.speechSynthesis)speechSynthesis.cancel();go("home");}};
