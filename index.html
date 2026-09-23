@@ -7,7 +7,7 @@
 <meta name="apple-mobile-web-app-title" content="成绩+">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="theme-color" content="#1f8a70">
-<link rel="manifest" href="manifest.json">
+<link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="icon-192.png">
 <title>成绩+</title>
 <style>
@@ -735,7 +735,7 @@ var DEFAULT_SETTINGS={
   mathTypes:["mix2","add2","add3","mul1","div1","mul10","unit","peri","word"],
   mixRate:0.5,
   rate:0.8, replay:3, goalMin:20, autoSpeak:true, cnInput:"hand", maPad:true, showSay:false,
-  enUnits:[], cnLessons:["第6课"], cnKinds:["zi","ci","shi"]
+  enUnits:[], cnLessons:["第6课"], cnKinds:["zi","ci","shi"], enZh:false
 };
 var S=Object.assign({},DEFAULT_SETTINGS,load("settings",{}));
 S.count=Object.assign({},DEFAULT_SETTINGS.count,S.count||{});
@@ -1063,6 +1063,14 @@ function viewHome(){
     '<div class="muted" style="margin-top:3px">已完成 '+pr.all+' 题 · 正确率 '+pr.rate+'% · 目标 '+S.goalMin+' 分钟</div>'+
     (pr.done>=SUBJ_KEYS.length?'<div style="margin-top:6px;color:var(--brand);font-weight:600;font-size:13px">今日任务已全部完成</div>':'')+
     '</div></div></div>';
+  var standalone=(window.matchMedia&&window.matchMedia('(display-mode: standalone)').matches)||window.navigator.standalone===true;
+  var isWx=/MicroMessenger/i.test(navigator.userAgent||"");
+  if(!standalone&&!load("hidePwaTip",false)){
+    html+='<div class="card tight" style="background:#eef7f4;border:1px solid #bfe3d7">'+
+      '<div style="font-weight:600;font-size:14px">'+(isWx?"用系统浏览器打开，才能像 App 一样用":"添加到手机桌面，像 App 一样全屏打开")+'</div>'+
+      '<div class="tiny" style="margin-top:4px;line-height:1.7">'+(isWx?"微信里不支持添加到桌面：点右上角「⋯」→「在浏览器打开」，再点浏览器菜单 → 添加到主屏幕。":"点浏览器菜单（右上角 ⋮）→「添加到主屏幕 / 添加到桌面」。之后从桌面图标打开就没有地址栏和底部菜单了。如果之前添加过旧图标，请先删除再重新添加。")+'</div>'+
+      '<button class="btn sm" style="margin-top:8px" id="hidePwaTip">知道了，不再提示</button></div>';
+  }
   subs.forEach(function(s){
     var rec=day[s.k];
     var todo=s.k==="cn"?cnPool().length:S.count[s.k];
@@ -1457,7 +1465,7 @@ function viewPractice(){
     body+='<div class="card tight">'+
       '<div class="tiny" style="color:var(--brand);font-weight:600">译林3A '+esc(q.unit||"")+' · '+enTypeName(q.type)+'</div>';
     if(q.say)body+='<div style="margin-top:8px;font-size:17px;line-height:1.85;font-weight:600">'+sayHtml(q.say)+'</div>';
-    if(q.zh)body+='<div class="tiny" style="margin-top:8px;line-height:1.7">'+esc(q.zh)+'</div>';
+    if(q.zh&&S.enZh)body+='<div class="tiny" style="margin-top:8px;line-height:1.7">'+esc(q.zh)+'</div>';
     if(isWeChat){
       body+='<div class="tiny" style="margin-top:8px">微信里不支持朗读，直接看对话做题即可</div>';
     }else if(canSpeak){
@@ -1712,6 +1720,10 @@ function viewSettings(){
       var on=(!S.enUnits||!S.enUnits.length||S.enUnits.indexOf(u)>=0);
       return '<button class="chip'+(on?" on":"")+'" data-eu="'+u+'">'+u+'</button>';
     }).join("")+'</div>'+
+    '<div class="tiny" style="margin-top:10px">题目中文翻译</div><div class="chips">'+
+    '<button class="chip'+(S.enZh?" on":"")+'" data-ezh="1">显示翻译</button>'+
+    '<button class="chip'+(!S.enZh?" on":"")+'" data-ezh="0">不显示（推荐）</button>'+
+    '</div>'+
     '<div class="frow" style="margin-top:12px"><div class="lab">朗读语速（可选）</div><select class="ctl" id="rateSel">'+
     [0.6,0.7,0.8,0.9,1].map(function(v){return '<option value="'+v+'"'+(Math.abs(S.rate-v)<0.01?" selected":"")+'>'+v+'x</option>';}).join("")+'</select></div>'+
     '<div class="frow"><div class="lab">每题可播放次数</div><select class="ctl" id="replaySel">'+
@@ -1752,6 +1764,8 @@ function bind(){
   v.querySelectorAll("[data-tabgo]").forEach(function(b){
     b.onclick=function(){go(b.getAttribute("data-tabgo"));};
   });
+  var hpt=$("hidePwaTip");
+  if(hpt)hpt.onclick=function(){save("hidePwaTip",true);render();};
   // 练习页
   var pb=$("playBtn");
   if(pb)pb.onclick=function(){
@@ -1898,6 +1912,9 @@ function bind(){
       if(cur.length===all.length)cur=[];
       S.enUnits=cur;saveS();render();
     };
+  });
+  v.querySelectorAll("[data-ezh]").forEach(function(b){
+    b.onclick=function(){S.enZh=(b.getAttribute("data-ezh")==="1");saveS();render();};
   });
   v.querySelectorAll("[data-mr]").forEach(function(b){
     b.onclick=function(){S.mixRate=parseFloat(b.getAttribute("data-mr"));saveS();render();};
