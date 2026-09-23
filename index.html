@@ -719,6 +719,9 @@ function isRight(user,ans){
 var KEY="m20_";
 function load(k,def){try{var v=localStorage.getItem(KEY+k);return v?JSON.parse(v):def;}catch(e){return def;}}
 function save(k,v){try{localStorage.setItem(KEY+k,JSON.stringify(v));}catch(e){}}
+/* 语文模块开关：false = 全站隐藏语文入口（题库保留，改回 true 即可恢复） */
+var CN_ON=false;
+var SUBJ_KEYS=CN_ON?["cn","ma","en"]:["ma","en"];
 var DEFAULT_SETTINGS={
   count:{cn:4,ma:15,en:8},
   mathTypes:["mix2","add2","add3","mul1","div1","mul10","unit","peri","word"],
@@ -1017,7 +1020,7 @@ function dstr(){
 }
 function progressOf(){
   var day=getDay(today()),tot=0,done=0,cor=0,all=0;
-  ["cn","ma","en"].forEach(function(k){if(day[k]){done++;tot+=day[k].score;all+=day[k].total;}});
+  SUBJ_KEYS.forEach(function(k){if(day[k]){done++;tot+=day[k].score;all+=day[k].total;}});
   return {done:done,rate:all?Math.round(tot/all*100):0,all:all,cor:tot};
 }
 function streakDays(){
@@ -1025,7 +1028,8 @@ function streakDays(){
   for(var i=0;i<400;i++){
     var key=d.getFullYear()+"-"+p2(d.getMonth()+1)+"-"+p2(d.getDate());
     var day=load(dayKey(key),null);
-    if(day&&(day.cn||day.ma||day.en))n++;
+    var hit=false;SUBJ_KEYS.forEach(function(k){if(day&&day[k])hit=true;});
+    if(hit)n++;
     else if(i>0)break;
     d.setDate(d.getDate()-1);
   }
@@ -1040,16 +1044,16 @@ function viewHome(){
     {k:"cn",n:"语文默写",s:"统编版 · "+cnLessonText()+" 生字词语",c:"#e3734a"},
     {k:"ma",n:"数学计算",s:"苏教版 · 口算与填空",c:"#4a7fe3"},
     {k:"en",n:"英语对话",s:"译林3A · 对话理解选择题",c:"#b060c0"}
-  ];
-  var pct=Math.round(pr.done/3*100);
+  ].filter(function(s){return CN_ON||s.k!=="cn";});
+  var pct=Math.round(pr.done/SUBJ_KEYS.length*100);
   var html="";
   html+='<div class="card"><div class="row">'+
     '<div class="ring"><svg width="78" height="78"><circle cx="39" cy="39" r="33" fill="none" stroke="#eef2f5" stroke-width="8"/>'+
     '<circle cx="39" cy="39" r="33" fill="none" stroke="#1f8a70" stroke-width="8" stroke-linecap="round" stroke-dasharray="'+(2*Math.PI*33)+'" stroke-dashoffset="'+(2*Math.PI*33*(1-pct/100))+'"/></svg>'+
-    '<div class="val"><b>'+pr.done+'/3</b><span>今日科目</span></div></div>'+
-    '<div style="flex:1"><div style="font-weight:700;font-size:16px">'+["今天也要坚持哦","开始今天的练习","每日 20 分钟"][pr.done===0?0:(pr.done===3?2:1)]+'</div>'+
+    '<div class="val"><b>'+pr.done+'/'+SUBJ_KEYS.length+'</b><span>今日科目</span></div></div>'+
+    '<div style="flex:1"><div style="font-weight:700;font-size:16px">'+["今天也要坚持哦","开始今天的练习","每日 20 分钟"][pr.done===0?0:(pr.done>=SUBJ_KEYS.length?2:1)]+'</div>'+
     '<div class="muted" style="margin-top:3px">已完成 '+pr.all+' 题 · 正确率 '+pr.rate+'% · 目标 '+S.goalMin+' 分钟</div>'+
-    (pr.done===3?'<div style="margin-top:6px;color:var(--brand);font-weight:600;font-size:13px">今日任务已全部完成</div>':'')+
+    (pr.done>=SUBJ_KEYS.length?'<div style="margin-top:6px;color:var(--brand);font-weight:600;font-size:13px">今日任务已全部完成</div>':'')+
     '</div></div></div>';
   subs.forEach(function(s){
     var rec=day[s.k];
@@ -1571,10 +1575,16 @@ function wrongToQ(w){
   }
   return {kind:"ma",s:"ma",text:w.q,ans:String(w.a),tip:w.tip||"",unit:autoKind(w.q)};
 }
+function visibleWrong(){
+  var out=[],i;
+  for(i=0;i<WRONG.length;i++){if(CN_ON||WRONG[i].s!=="cn")out.push({w:WRONG[i],i:i});}
+  return out;
+}
 function startRedoAll(){
-  if(!WRONG.length){toast("错题本是空的");return;}
-  var qs=WRONG.map(wrongToQ);
-  ST.subj=qs[0].s||"cn";
+  var vw=visibleWrong();
+  if(!vw.length){toast("错题本是空的");return;}
+  var qs=vw.map(function(o){return wrongToQ(o.w);});
+  ST.subj=qs[0].s||"ma";
   ST.qs=qs;ST.idx=0;
   ST.answers=qs.map(function(){return "";});
   ST.plays=qs.map(function(){return 0;});
@@ -1589,12 +1599,13 @@ function startRedoAll(){
 /* ---------- 错题本 ---------- */
 function viewWrong(){
   $("tbStreak").textContent="";
-  if(!WRONG.length)return '<div class="empty">还没有错题<br>保持住！</div>';
+  var vw=visibleWrong();
+  if(!vw.length)return '<div class="empty">还没有错题<br>保持住！</div>';
   var bySub={cn:[],ma:[],en:[]};
-  WRONG.forEach(function(w,i){if(bySub[w.s])bySub[w.s].push({w:w,i:i});});
+  vw.forEach(function(o){if(bySub[o.w.s])bySub[o.w.s].push(o);});
   var names={cn:"语文",ma:"数学",en:"英语"};
-  var html='<div class="btnrow" style="margin-bottom:12px"><button class="btn" id="redoAllBtn">重做全部错题（'+WRONG.length+' 题）</button></div>';
-  ["cn","ma","en"].forEach(function(k){
+  var html='<div class="btnrow" style="margin-bottom:12px"><button class="btn" id="redoAllBtn">重做全部错题（'+vw.length+' 题）</button></div>';
+  SUBJ_KEYS.forEach(function(k){
     if(!bySub[k].length)return;
     var list=bySub[k].slice(0,20);
     html+='<div class="card"><div class="between" style="margin-bottom:6px"><div style="font-weight:700">'+names[k]+' <span class="tiny">'+bySub[k].length+' 题</span></div></div>';
@@ -1619,7 +1630,7 @@ function viewStats(){
     var k=dd.getFullYear()+"-"+p2(dd.getMonth()+1)+"-"+p2(dd.getDate());
     var rec=load(dayKey(k),null);
     var tot=0,cor=0;
-    ["cn","ma","en"].forEach(function(s){if(rec&&rec[s]){tot+=rec[s].total;cor+=rec[s].score;}});
+    SUBJ_KEYS.forEach(function(s){if(rec&&rec[s]){tot+=rec[s].total;cor+=rec[s].score;}});
     days.push({k:k,tot:tot,cor:cor,rate:tot?Math.round(cor/tot*100):0});
   }
   var active=days.filter(function(x){return x.tot>0;});
@@ -1648,12 +1659,13 @@ function viewStats(){
 function viewSettings(){
   $("tbStreak").textContent="";
   var html="";
-  html+='<div class="card"><div style="font-weight:700;margin-bottom:4px">每日题量</div><div class="tiny">数学、英语按数量出题；语文按课默写（在下面设置）</div>';
+  html+='<div class="card"><div style="font-weight:700;margin-bottom:4px">每日题量</div><div class="tiny">数学、英语按数量出题，建议总量约 20 分钟完成</div>';
   [["ma","数学计算",5,40],["en","英语对话",3,20]].forEach(function(x){
     html+='<div class="frow"><div class="lab">'+x[1]+'</div><div class="stepper"><button data-cnt="'+x[0]+'" data-op="-">−</button><div class="v">'+S.count[x[0]]+'</div><button data-cnt="'+x[0]+'" data-op="+">＋</button></div></div>';
   });
   html+='<div class="frow"><div class="lab">每日目标时长</div><div class="stepper"><button data-min="-">−</button><div class="v">'+S.goalMin+'</div><button data-min="+">＋</button></div></div></div>';
 
+  if(CN_ON){
   html+='<div class="card"><div style="font-weight:700">语文默写（按课）</div>'+
     '<div class="tiny" style="margin:4px 0 8px">选哪一课，就默那一课的生字和词语，题量按课本走，不用管数量。孩子学到第几课就选到第几课。</div>'+
     '<div class="tiny" style="margin-top:8px">课次（可多选，全不选 = 第6课）</div><div class="chips">'+
@@ -1667,6 +1679,7 @@ function viewSettings(){
       return '<button class="chip'+(on?" on":"")+'" data-ck="'+v[0]+'">'+v[1]+'</button>';
     }).join("")+'</div>'+
     '<div class="tiny" style="margin-top:10px;padding:8px 10px;background:#f2f7f5;border-radius:8px">当前设置：<b>'+cnLessonText()+'</b> · 共 <b>'+cnPool().length+'</b> 题</div></div>';
+  }
 
   html+='<div class="card"><div style="font-weight:700">数学题型</div><div class="tiny">已选 '+(S.mathTypes.length||0)+' 类</div><div class="chips">';
   MATH_TYPES.forEach(function(t){
@@ -1678,11 +1691,11 @@ function viewSettings(){
     '</div></div>';
 
   html+='<div class="card"><div style="font-weight:700">作答方式</div>'+
-    '<div class="frow"><div class="lab">语文默写</div><select class="ctl" id="cnInputSel">'+
-    [["hand","手写（推荐）"],["key","键盘输入"]].map(function(v){return '<option value="'+v[0]+'"'+(S.cnInput===v[0]?" selected":"")+'>'+v[1]+'</option>';}).join("")+'</select></div>'+
+    (CN_ON?'<div class="frow"><div class="lab">语文默写</div><select class="ctl" id="cnInputSel">'+
+    [["hand","手写（推荐）"],["key","键盘输入"]].map(function(v){return '<option value="'+v[0]+'"'+(S.cnInput===v[0]?" selected":"")+'>'+v[1]+'</option>';}).join("")+'</select></div>':'')+
     '<div class="frow"><div class="lab">数学计算</div><select class="ctl" id="maInputSel">'+
     [[true,"数字键盘（推荐）"],[false,"系统键盘"]].map(function(v){return '<option value="'+v[0]+'"'+((!!S.maPad)===!!v[0]?" selected":"")+'>'+v[1]+'</option>';}).join("")+'</select></div>'+
-    '<div class="tiny">手写：在方框里写一个字，从候选里点选；数学用数字键盘，避免手机键盘挡住题目。</div></div>';
+    '<div class="tiny">'+(CN_ON?'手写：在方框里写一个字，从候选里点选；':'')+'数学用数字键盘，避免手机键盘挡住题目。</div></div>';
 
   html+='<div class="card"><div style="font-weight:700">英语练习（译林3A 对话理解）</div>'+
     '<div class="tiny" style="margin:4px 0 8px">题库 '+EN.length+' 题，覆盖 U1–U8：对话理解、应答选择、情景表达、词义选择。全部是选择题，不需要听声音也能做。</div>'+
@@ -1699,16 +1712,16 @@ function viewSettings(){
     '<div style="margin-top:10px"><button class="btn line sm" id="testSpeak">试听一句英文</button></div>'+
     '<div class="tiny" style="margin-top:10px;line-height:1.7">'+voiceDiag()+'</div></div>';
 
-  html+='<div class="card"><div style="font-weight:700">题库管理</div><div class="tiny" style="margin:4px 0 10px">当前：语文 '+CN.length+' · 数学 '+MA.length+' · 英语 '+EN.length+' 题。支持 cn/ma/en 或 chinese/math/english，题干写 q 或 t 都可以。</div>'+
+  html+='<div class="card"><div style="font-weight:700">题库管理</div><div class="tiny" style="margin:4px 0 10px">当前：数学 '+MA.length+' · 英语 '+EN.length+' 题。支持 ma/en 或 math/english，题干写 q 或 t 都可以。</div>'+
     '<div class="btnrow"><button class="btn line sm" id="expBank">导出现有题库</button><button class="btn gray sm" id="resetBank">恢复内置题库</button></div>'+
-    '<textarea id="bankText" style="margin-top:10px" placeholder="粘贴题库 JSON，例如：&#10;{&quot;chinese&quot;:[{&quot;q&quot;:&quot;píng bà ________&quot;,&quot;a&quot;:&quot;坪坝&quot;}],&#10; &quot;english&quot;:[{&quot;say&quot;:&quot;Good morning.&quot;,&quot;zh&quot;:&quot;早上好。&quot;,&quot;a&quot;:&quot;早上好。&quot;}],&#10; &quot;math&quot;:[{&quot;q&quot;:&quot;3千克＝（ ）克&quot;,&quot;a&quot;:&quot;3000&quot;}]}"></textarea>'+
+    '<textarea id="bankText" style="margin-top:10px" placeholder="粘贴题库 JSON，例如：&#10;{&quot;english&quot;:[{&quot;say&quot;:&quot;Good morning.&quot;,&quot;zh&quot;:&quot;早上好。&quot;,&quot;q&quot;:&quot;这句话是什么意思？&quot;,&quot;opts&quot;:[&quot;早上好。&quot;,&quot;晚上好。&quot;,&quot;再见。&quot;,&quot;谢谢。&quot;],&quot;a&quot;:&quot;早上好。&quot;}],&#10; &quot;math&quot;:[{&quot;q&quot;:&quot;3千克＝（ ）克&quot;,&quot;a&quot;:&quot;3000&quot;}]}"></textarea>'+
     '<button class="btn sm" style="margin-top:10px" id="doImport">确认导入</button></div>';
 
   html+='<div class="card"><div style="font-weight:700;margin-bottom:6px">数据</div>'+
     '<div class="btnrow"><button class="btn line sm" id="expData">导出学习记录</button><button class="btn line sm" id="clearData" style="color:var(--red)">清空全部数据</button></div>'+
     '<div class="tiny" style="margin-top:10px">数据保存在本手机浏览器中，换设备请导出备份。</div></div>';
 
-  html+='<div class="tiny" style="text-align:center;margin:16px 0 30px">每日20分钟 · 江苏三年级（语文统编/数学苏教/英语译林）</div>';
+  html+='<div class="tiny" style="text-align:center;margin:16px 0 30px">每日20分钟 · 江苏三年级（数学苏教/英语译林）</div>';
   return html;
 }
 
