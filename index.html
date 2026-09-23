@@ -4,8 +4,12 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="成绩+">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="theme-color" content="#1f8a70">
-<title>每日20分钟 · 三年级练习</title>
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icon-192.png">
+<title>成绩+</title>
 <style>
 :root{
   --brand:#1f8a70; --brand-soft:#e6f4f0; --brand-dark:#166b56;
@@ -174,10 +178,14 @@ body.practicing{padding-bottom:20px}
 
 <script>
 /* ============================================================
-   每日20分钟 · 三年级（江苏）每日练习
-   语文：统编版  数学：苏教版  英语：译林版
+   成绩+ · 三年级（江苏）每日练习
+   数学：苏教版  英语：译林版
    单文件离线网页，数据存 localStorage
    ============================================================ */
+/* 注册 Service Worker，支持添加到主屏幕后以独立 App 形式打开 */
+if('serviceWorker' in navigator){
+  navigator.serviceWorker.register('sw.js').catch(function(e){console.log('SW register failed',e);});
+}
 
 /* ---------- 题库（可自行扩充/导入） ---------- */
 /* ==== BANK:CHINESE:START ==== */
