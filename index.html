@@ -142,14 +142,15 @@ body.practicing{padding-bottom:20px}
 .pad button.wide{grid-column:span 2}
 .hwrap{margin-top:10px;display:flex;flex-direction:column;align-items:center}
 #hw{width:100%;max-width:300px;aspect-ratio:1/1;border:2px solid var(--line);border-radius:14px;background:#fff;touch-action:none;display:block}
-.cands{display:flex;flex-wrap:wrap;gap:7px;justify-content:center;margin-top:9px}
-.cands button{min-width:54px;height:52px;font-size:24px;border:1.5px solid var(--line);background:#fff;border-radius:11px;color:var(--t1);padding:0 6px}
+.cands{display:flex;flex-wrap:nowrap;gap:7px;justify-content:flex-start;margin-top:9px;overflow-x:auto;padding-bottom:6px;-webkit-overflow-scrolling:touch;scrollbar-width:none}
+.cands::-webkit-scrollbar{display:none}
+.cands button{flex:0 0 auto;min-width:50px;height:48px;font-size:24px;border:1.5px solid var(--line);background:#fff;border-radius:11px;color:var(--t1);padding:0 6px;white-space:nowrap}
 .cands button:active{background:var(--brand-l)}
 .blanks{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:8px;justify-content:center}
 .blanks .bs{min-width:64px;height:44px;border-bottom:2px solid var(--line);display:flex;align-items:center;justify-content:center;font-size:20px;font-weight:600;color:var(--brand-dark)}
 .blanks .bs.cur{border-bottom-color:var(--brand);background:var(--brand-l);border-radius:8px}
-.hwbar{display:flex;gap:8px;margin-top:9px}
-.hwbar button{flex:1;height:42px;border:1px solid var(--line);background:#fff;border-radius:10px;font-size:14px;color:var(--t2)}
+.hwbar{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:9px}
+.hwbar button{height:42px;border:1px solid var(--line);background:#fff;border-radius:10px;font-size:13px;color:var(--t2);white-space:nowrap;overflow:hidden;padding:0 2px}
 </style>
 </head>
 <body>
@@ -1290,7 +1291,7 @@ function hwGrid(g,w,h){
   g.strokeStyle="#dbe2e8";g.lineWidth=2;g.strokeRect(1,1,w-2,h-2);
 }
 function hwLine(g,cv,a,b){
-  g.strokeStyle="#1c2429";g.lineWidth=Math.max(3,cv.width*0.05);g.lineCap="round";g.lineJoin="round";
+  g.strokeStyle="#1c2429";g.lineWidth=3;g.lineCap="round";g.lineJoin="round";
   g.beginPath();g.moveTo(a[0],a[1]);g.lineTo(b[0],b[1]);g.stroke();
 }
 function hwInit(){
