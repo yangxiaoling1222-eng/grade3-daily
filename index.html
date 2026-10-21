@@ -129,6 +129,23 @@ textarea{width:100%;min-height:120px;border:1.5px solid var(--line);border-radiu
 body.practicing .tabbar{display:none}
 body.practicing{padding-bottom:20px}
 
+/* 草稿模式：压缩其余区域，把空间全让给草稿纸 */
+body.drafting .topbar{padding:calc(4px + env(safe-area-inset-top)) 0 4px}
+body.drafting .topbar .date{display:none}
+body.drafting .topbar .title{font-size:16px;margin-top:0}
+body.drafting .streak{font-size:11px;padding:3px 8px}
+body.drafting .qmeta{font-size:11px}
+body.drafting .pbar{margin:3px 0 5px;height:4px}
+body.drafting .qbox{padding:9px 13px;margin-bottom:6px}
+body.drafting .qtext{font-size:17px;line-height:1.45}
+body.drafting .hint{display:none}
+body.drafting .drafttoggle{margin:5px 0 6px}
+body.drafting .drafttoggle .chip{padding:5px 12px;font-size:12px;min-width:70px}
+body.drafting .card.tight{padding:8px;margin-bottom:6px}
+body.drafting{padding-bottom:6px}
+.dhead{display:flex;align-items:center;justify-content:space-between;margin-bottom:5px}
+.dhead button.tiny{color:var(--brand);text-decoration:underline;padding:2px 4px}
+
 /* 统计 */
 .bars{display:flex;align-items:flex-end;gap:6px;height:90px;margin-top:10px}
 .bars .b{flex:1;display:flex;flex-direction:column;align-items:center;gap:5px;height:100%;justify-content:flex-end}
@@ -1054,6 +1071,7 @@ function render(){
   else if(ST.tab==="wrong")v.innerHTML=viewWrong();
   else if(ST.tab==="stats")v.innerHTML=viewStats();
   else if(ST.tab==="settings")v.innerHTML=viewSettings();
+  document.body.classList.toggle("drafting",ST.tab==="practice"&&!!ST.draft);
   bind();
   $("tbTitle").textContent=titles[ST.tab]||"今日练习";
 }
@@ -1436,14 +1454,30 @@ function hwInit(){
 }
 /* ---------- 数学草稿板（竖式） ---------- */
 function draftHtml(){
-  return '<div class="card tight"><div style="font-weight:600;font-size:14px;margin-bottom:6px">草稿纸（用手指写竖式）</div>'+
-    '<canvas id="draftCanvas" style="width:100%;background:#fff;border:1px solid #d0d7de;border-radius:8px;touch-action:none;display:block"></canvas>'+
-    '<div style="text-align:center;margin-top:8px"><button class="btn line sm" id="draftClear">清空草稿</button></div></div>';
+  return '<div class="card tight" style="padding:8px">'+
+    '<div class="dhead"><span class="tiny">草稿纸 · 用手指写竖式</span><button class="tiny" id="draftClear">清空</button></div>'+
+    '<canvas id="draftCanvas" style="width:100%;background:#fff;border:1px solid #d0d7de;border-radius:8px;touch-action:none;display:block"></canvas></div>';
 }
-/* 草稿纸高度：尽量占满一屏，但保证「上一题/下一题」按钮留在首屏内 */
+/* 草稿纸高度：先按屏幕给一个保守值，渲染后再把「按钮下方剩余空间」全部吃掉 */
 function draftHeight(){
   var vh=window.innerHeight||800;
-  return Math.round(Math.min(680,Math.max(300,vh-495)));
+  return Math.round(Math.min(680,Math.max(260,vh-420)));
+}
+function draftResize(c){
+  if(!c)return 0;
+  var vh=window.innerHeight||800;
+  var h=draftHeight();
+  if(c.clientWidth>0)c.width=Math.round(c.clientWidth);
+  c.height=h;c.style.height=h+"px";
+  var btn=$("nextBtn");
+  if(btn){
+    var free=Math.round(vh-btn.getBoundingClientRect().bottom-8);
+    if(free>10){
+      h=Math.min(h+free,Math.round(vh*0.86));
+      c.height=h;c.style.height=h+"px";
+    }
+  }
+  return h;
 }
 var DRAFT=null;
 function drawDraftBg(ctx,w,h){
@@ -1454,9 +1488,7 @@ function drawDraftBg(ctx,w,h){
 }
 function draftInit(){
   var c=$("draftCanvas");if(!c)return;
-  var h=draftHeight();
-  if(c.clientWidth>0)c.width=Math.round(c.clientWidth);
-  c.height=h;c.style.height=h+"px";
+  var h=draftResize(c);
   var ctx=c.getContext("2d");
   ctx.lineWidth=3;ctx.lineCap="round";ctx.lineJoin="round";ctx.strokeStyle="#333";
   drawDraftBg(ctx,c.width,c.height);
@@ -1481,6 +1513,19 @@ function draftClear(){
   drawDraftBg(DRAFT.ctx,DRAFT.c.width,DRAFT.c.height);
   ST.drafts[ST.idx]=null;
 }
+/* 屏幕旋转 / 尺寸变化时，草稿纸重新占满剩余空间（保留已写内容） */
+window.addEventListener("resize",function(){
+  if(!document.body.classList.contains("drafting"))return;
+  var c=$("draftCanvas");if(!c)return;
+  var img=c.toDataURL();
+  draftResize(c);
+  var ctx=c.getContext("2d");
+  ctx.lineWidth=3;ctx.lineCap="round";ctx.lineJoin="round";ctx.strokeStyle="#333";
+  drawDraftBg(ctx,c.width,c.height);
+  var im=new Image();
+  im.onload=function(){try{ctx.drawImage(im,0,0,c.width,c.height);}catch(e){}};
+  im.src=img;
+});
 function hwRecognize(){
   var q=ST.qs[ST.idx];
   var box=$("cands");
@@ -1592,10 +1637,10 @@ function viewPractice(){
     body+='</div></div>';
   }
   html+=body;
-  html+='<div style="height:14px"></div>';
-  html+='<div class="btnrow"><button class="btn line" style="flex:0 0 34%" id="prevBtn"'+(i===0?" disabled":"")+'>上一题</button>'+
-    '<button class="btn" style="flex:1" id="nextBtn">'+(i===n-1?"提交批改":"下一题")+'</button></div>';
-  html+='<div style="text-align:center;margin-top:10px"><button class="tiny" id="quitBtn" style="text-decoration:underline">退出练习</button>'+
+  html+='<div style="height:'+(ST.draft?6:14)+'px"></div>';
+  html+='<div class="btnrow"><button class="btn line" style="flex:0 0 34%'+(ST.draft?";padding:11px":"")+'" id="prevBtn"'+(i===0?" disabled":"")+'>上一题</button>'+
+    '<button class="btn" style="flex:1'+(ST.draft?";padding:11px":"")+'" id="nextBtn">'+(i===n-1?"提交批改":"下一题")+'</button></div>';
+  html+='<div style="text-align:center;margin-top:'+(ST.draft?5:10)+'px"><button class="tiny" id="quitBtn" style="text-decoration:underline">退出练习</button>'+
     (ST.redo?'':' <span class="tiny" style="color:#ccc">·</span> <button class="tiny" id="regenBtn" style="text-decoration:underline">换一批</button>')+'</div>';
   return html;
 }
