@@ -680,6 +680,7 @@ var MATH_TYPES = [
   {k:"add3",n:"三位数加减"},
   {k:"mul1",n:"乘一位数"},
   {k:"div1",n:"除一位数"},
+  {k:"vdiv",n:"除法竖式"},
   {k:"mul10",n:"乘整十数"},
   {k:"mul2",n:"两位数乘两位数（三下）"},
   {k:"unit",n:"单位换算"},
@@ -733,7 +734,7 @@ var SUBJ_KEYS=CN_ON?["cn","ma","en"]:["ma","en"];
 var DEFAULT_SETTINGS={
   count:{cn:4,ma:15,en:8},
   lastN:{cn:0,ma:0,en:0},
-  mathTypes:["mix2","add2","add3","mul1","div1","mul10","unit","peri","word"],
+  mathTypes:["mix2","add2","add3","mul1","div1","vdiv","mul10","unit","peri","word"],
   mixRate:0.5,
   rate:0.8, replay:3, goalMin:20, autoSpeak:true, cnInput:"hand", maPad:true, showSay:false,
   enUnits:[], cnLessons:["第6课"], cnKinds:["zi","ci","shi"], enZh:false
@@ -741,6 +742,15 @@ var DEFAULT_SETTINGS={
 var S=Object.assign({},DEFAULT_SETTINGS,load("settings",{}));
 S.count=Object.assign({},DEFAULT_SETTINGS.count,S.count||{});
 S.lastN=Object.assign({},DEFAULT_SETTINGS.lastN,S.lastN||{});
+/* 老用户升级：默认题型里加入「除法竖式」（只补一次，之后可自由取消勾选） */
+if(!S.vdivAdded){
+  if(!S.mathTypes||!S.mathTypes.length)S.mathTypes=["mix2","vdiv"];
+  else if(S.mathTypes.indexOf("vdiv")<0){
+    var _di=S.mathTypes.indexOf("div1");
+    if(_di>=0)S.mathTypes.splice(_di+1,0,"vdiv");else S.mathTypes.push("vdiv");
+  }
+  S.vdivAdded=true;save("settings",S);
+}
 function saveS(){save("settings",S);}
 function dayKey(d){return "day_"+d;}
 /* 一天可以做 N 组：sessions 记录当天每一组练习（已完成即封存，不能再做） */
@@ -887,6 +897,21 @@ function genMix2(r){
 function genMath(r,ty){
   var a,b,c,q,ans;
   if(ty==="mix2"){var m2=genMix2(r);return {kind:"ma",text:m2[0],ans:String(m2[1]),tip:"",unit:"mix2"};}
+  if(ty==="vdiv"){
+    /* 除法竖式：两/三位数 ÷ 一位数（苏教三上），约一半带余数 */
+    var b=ri(r,2,9),qs,rr;
+    if(r()<0.45){
+      qs=ri(r,10,99);rr=ri(r,1,b-1);
+      q="竖式计算："+(b*qs+rr)+" ÷ "+b+" =";
+      ans=qs+"…"+rr;
+    }else{
+      /* 商两位或三位数，且被除数不超过 999（两三位数除以一位数） */
+      qs=ri(r,12,Math.floor(999/b));
+      q="竖式计算："+(b*qs)+" ÷ "+b+" =";
+      ans=String(qs);
+    }
+    return {kind:"ma",text:q,ans:String(ans),tip:"在草稿纸上列竖式，注意数位对齐，商和余数都写在答案里",unit:"vdiv"};
+  }
   if(ty==="add2"){
     if(r()<.5){a=ri(r,11,89);b=ri(r,11,89);q=a+" + "+b+" =";ans=a+b;}
     else{a=ri(r,30,99);b=ri(r,10,a-1);q=a+" − "+b+" =";ans=a-b;}
@@ -1140,7 +1165,7 @@ function startPractice(k,n){
   ST.idx=0;
   ST.answers=new Array(ST.qs.length).fill("");
   ST.plays=new Array(ST.qs.length).fill(0);
-  ST.curBlank=0;ST.hwStrokes=[];ST.drafts=new Array(ST.qs.length).fill(null);ST.draft=false;
+  ST.curBlank=0;ST.hwStrokes=[];ST.drafts=new Array(ST.qs.length).fill(null);ST.draft=!!(ST.qs[0]&&ST.qs[0].unit==="vdiv");
   ST.start=Date.now();ST.tab="practice";
   document.body.classList.add("practicing");
   render();window.scrollTo(0,0);
@@ -1412,8 +1437,13 @@ function hwInit(){
 /* ---------- 数学草稿板（竖式） ---------- */
 function draftHtml(){
   return '<div class="card tight"><div style="font-weight:600;font-size:14px;margin-bottom:6px">草稿纸（用手指写竖式）</div>'+
-    '<canvas id="draftCanvas" width="300" height="240" style="width:100%;height:240px;background:#fff;border:1px solid #d0d7de;border-radius:8px;touch-action:none;"></canvas>'+
+    '<canvas id="draftCanvas" style="width:100%;background:#fff;border:1px solid #d0d7de;border-radius:8px;touch-action:none;display:block"></canvas>'+
     '<div style="text-align:center;margin-top:8px"><button class="btn line sm" id="draftClear">清空草稿</button></div></div>';
+}
+/* 草稿纸高度：尽量占满一屏，但保证「上一题/下一题」按钮留在首屏内 */
+function draftHeight(){
+  var vh=window.innerHeight||800;
+  return Math.round(Math.min(680,Math.max(300,vh-495)));
 }
 var DRAFT=null;
 function drawDraftBg(ctx,w,h){
@@ -1424,11 +1454,14 @@ function drawDraftBg(ctx,w,h){
 }
 function draftInit(){
   var c=$("draftCanvas");if(!c)return;
+  var h=draftHeight();
+  if(c.clientWidth>0)c.width=Math.round(c.clientWidth);
+  c.height=h;c.style.height=h+"px";
   var ctx=c.getContext("2d");
   ctx.lineWidth=3;ctx.lineCap="round";ctx.lineJoin="round";ctx.strokeStyle="#333";
   drawDraftBg(ctx,c.width,c.height);
   var prev=ST.drafts[ST.idx];
-  if(prev){var img=new Image();img.onload=function(){ctx.drawImage(img,0,0);};img.src=prev;}
+  if(prev){var img=new Image();img.onload=function(){try{ctx.drawImage(img,0,0,c.width,c.height);}catch(e){}};img.src=prev;}
   DRAFT={c:c,ctx:ctx,drawing:false,last:null};
   function pos(e){var r=c.getBoundingClientRect();var t=(e.touches&&e.touches[0])?e.touches[0]:e;return [(t.clientX-r.left)*(c.width/r.width),(t.clientY-r.top)*(c.height/r.height)];}
   function start(e){if(e.cancelable)e.preventDefault();DRAFT.drawing=true;DRAFT.last=pos(e);DRAFT.ctx.beginPath();DRAFT.ctx.moveTo(DRAFT.last[0],DRAFT.last[1]);}
@@ -1520,7 +1553,7 @@ function viewPractice(){
     if(partsM.length===1){
       body='<div class="qbox"><div class="qtext">'+esc(q.text)+'</div>'+
         (q.tip?'<div class="hint">提示：'+esc(q.tip)+'</div>':'')+'</div>'+
-        '<div class="drafttoggle"><button class="chip'+(ST.draft?"":" on")+'" id="ansTab">答题</button><button class="chip'+(ST.draft?" on":"")+'" id="draftTab">打草稿</button></div>'+
+        '<div class="drafttoggle"><button class="chip'+(ST.draft?"":" on")+'" id="ansTab">答题</button><button class="chip'+(ST.draft?" on":"")+'" id="draftTab">'+(q.unit==="vdiv"?"写竖式":"打草稿")+'</button></div>'+
         '<div id="ansArea" style="display:'+(ST.draft?'none':'block')+'"><input class="ansinput" id="ans0"'+rom+' placeholder="'+(S.maPad?"用下面键盘作答":"输入答案")+'" autocomplete="off" style="font-size:20px;font-weight:600;text-align:center;letter-spacing:1px"></div>'+
         '<div id="draftArea" style="display:'+(ST.draft?'block':'none')+'">'+draftHtml()+'</div>';
     }else{
@@ -1674,7 +1707,7 @@ function startRedoList(qs){
   ST.qs=qs;ST.idx=0;
   ST.answers=qs.map(function(){return "";});
   ST.plays=qs.map(function(){return 0;});
-  ST.curBlank=0;ST.hwStrokes=[];ST.drafts=new Array(qs.length).fill(null);ST.draft=false;
+  ST.curBlank=0;ST.hwStrokes=[];ST.drafts=new Array(qs.length).fill(null);ST.draft=!!(qs[0]&&qs[0].unit==="vdiv");
   ST.redo=true;ST.result=null;ST.groupNo=0;ST.reqN=null;
   ST.start=Date.now();ST.tab="practice";
   document.body.classList.add("practicing");
@@ -1720,7 +1753,7 @@ function startRedoAll(){
   ST.qs=qs;ST.idx=0;
   ST.answers=qs.map(function(){return "";});
   ST.plays=qs.map(function(){return 0;});
-  ST.curBlank=0;ST.hwStrokes=[];ST.drafts=new Array(ST.qs.length).fill(null);ST.draft=false;
+  ST.curBlank=0;ST.hwStrokes=[];ST.drafts=new Array(ST.qs.length).fill(null);ST.draft=!!(ST.qs[0]&&ST.qs[0].unit==="vdiv");
   ST.redo=true;ST.result=null;
   ST.start=Date.now();ST.tab="practice";
   document.body.classList.add("practicing");
@@ -1973,13 +2006,13 @@ function bind(){
   if(nb)nb.onclick=function(){
     ST.answers[ST.idx]=collectAnswer();
     if(ST.answers[ST.idx]===""&&!confirm("本题还没有作答，确定继续吗？"))return;
-    if(ST.idx<ST.qs.length-1){ST.idx++;ST.curBlank=0;ST.hwStrokes=[];ST.draft=false;render();window.scrollTo(0,0);if(ST.subj==="en"&&S.autoSpeak&&speechUnlocked)setTimeout(autoPlay,300);}
+    if(ST.idx<ST.qs.length-1){ST.idx++;ST.curBlank=0;ST.hwStrokes=[];ST.draft=!!(ST.qs[ST.idx]&&ST.qs[ST.idx].unit==="vdiv");render();window.scrollTo(0,0);if(ST.subj==="en"&&S.autoSpeak&&speechUnlocked)setTimeout(autoPlay,300);}
     else finish();
   };
   var pv=$("prevBtn");
   if(pv)pv.onclick=function(){
     ST.answers[ST.idx]=collectAnswer();
-    if(ST.idx>0){ST.idx--;ST.curBlank=0;ST.hwStrokes=[];ST.draft=false;render();window.scrollTo(0,0);if(ST.subj==="en"&&S.autoSpeak&&speechUnlocked)setTimeout(autoPlay,300);}
+    if(ST.idx>0){ST.idx--;ST.curBlank=0;ST.hwStrokes=[];ST.draft=!!(ST.qs[ST.idx]&&ST.qs[ST.idx].unit==="vdiv");render();window.scrollTo(0,0);if(ST.subj==="en"&&S.autoSpeak&&speechUnlocked)setTimeout(autoPlay,300);}
   };
   var qb=$("quitBtn");
   if(qb)qb.onclick=function(){if(confirm("退出后本次作答不保存，确定吗？")){if(window.speechSynthesis)speechSynthesis.cancel();go("home");}};
