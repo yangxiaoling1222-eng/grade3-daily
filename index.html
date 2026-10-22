@@ -189,7 +189,6 @@ body.drafting{padding-bottom:6px}
   <button class="tb on" data-tab="home"><span class="d">◉</span>练习</button>
   <button class="tb" data-tab="wrong"><span class="d">✕</span>错题本</button>
   <button class="tb" data-tab="stats"><span class="d">▤</span>统计</button>
-  <button class="tb" data-tab="settings"><span class="d">⚙</span>设置</button>
 </div>
 <div class="toast" id="toast"></div>
 
@@ -1053,9 +1052,13 @@ var ST={tab:"home",subj:null,qs:[],idx:0,answers:[],start:0,plays:[],result:null
 /* ---------- 渲染 ---------- */
 function $(id){return document.getElementById(id);}
 function go(tab){
+  if(tab==="settings"&&ST.tab!=="settings"){
+    var f=ST.tab;
+    ST.setFrom=(f==="practice"||f==="setup"||f==="review"||f==="result")?"home":f;
+  }
   ST.tab=tab;
   if(tab!=="practice"){document.body.classList.remove("practicing");}
-  var hl=({home:"home",practice:"home",setup:"home",review:"home"})[tab]||tab;
+  var hl=({home:"home",practice:"home",setup:"home",review:"home",settings:"stats"})[tab]||tab;
   var ts=document.querySelectorAll(".tabbar .tb");
   for(var i=0;i<ts.length;i++){ts[i].classList.toggle("on",ts[i].getAttribute("data-tab")===hl);}
   render();
@@ -1850,7 +1853,9 @@ function viewStats(){
   var active=days.filter(function(x){return x.tot>0;});
   var avg=active.length?Math.round(active.reduce(function(a,b){return a+b.rate;},0)/active.length):0;
   var maxH=Math.max(1,Math.max.apply(null,days.map(function(x){return x.tot;})));
-  var html='<div class="card"><div class="row"><div style="flex:1"><div style="text-align:center"><div style="font-size:30px;font-weight:800">'+streakDays()+'</div><div class="tiny">连续打卡（天）</div></div></div>'+
+  var html='<button class="subj" data-tabgo="settings"><div class="ico" style="background:#7b8794">⚙</div>'+
+    '<div style="flex:1"><div class="n">设置</div><div class="s">默认题量 · 题型 · 朗读 · 单元筛选</div></div><span class="chev">›</span></button>';
+  html+='<div class="card"><div class="row"><div style="flex:1"><div style="text-align:center"><div style="font-size:30px;font-weight:800">'+streakDays()+'</div><div class="tiny">连续打卡（天）</div></div></div>'+
     '<div style="width:1px;height:44px;background:var(--line)"></div>'+
     '<div style="flex:1"><div style="text-align:center"><div style="font-size:30px;font-weight:800">'+avg+'%</div><div class="tiny">近两周平均正确率</div></div></div></div></div>';
   html+='<div class="card"><div style="font-weight:700">近 14 天题量</div><div class="bars">';
@@ -1872,7 +1877,9 @@ function viewStats(){
 /* ---------- 设置 ---------- */
 function viewSettings(){
   $("tbStreak").textContent="";
+  var back=ST.setFrom||"stats";
   var html="";
+  html+='<div style="margin-bottom:10px"><button class="btn line sm" style="width:auto;display:inline-block;padding:8px 16px" data-tabgo="'+back+'">‹ 返回'+({home:"首页",wrong:"错题本",stats:"统计",practice:"练习"}[back]||"")+'</button></div>';
   html+='<div class="card"><div style="font-weight:700;margin-bottom:4px">默认题量</div><div class="tiny">每次开练前可以临时改，一天想做几组就开几组</div>';
   [["ma","数学计算",5,40],["en","英语对话",3,20]].forEach(function(x){
     html+='<div class="frow"><div class="lab">'+x[1]+'</div><div class="stepper"><button data-cnt="'+x[0]+'" data-op="-">−</button><div class="v">'+S.count[x[0]]+'</div><button data-cnt="'+x[0]+'" data-op="+">＋</button></div></div>';
