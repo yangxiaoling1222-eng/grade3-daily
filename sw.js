@@ -1,4 +1,4 @@
-const CACHE_NAME = 'grade3-daily-v2';
+const CACHE_NAME = 'grade3-daily-v3';
 const ASSETS = [
   '/grade3-daily/',
   '/grade3-daily/index.html',

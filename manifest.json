@@ -1,6 +1,6 @@
 {
-  "name": "成绩+",
-  "short_name": "成绩+",
+  "name": "瞳瞳练习",
+  "short_name": "瞳瞳练习",
   "start_url": "/grade3-daily/",
   "scope": "/grade3-daily/",
   "display": "standalone",
